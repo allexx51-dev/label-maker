@@ -1,12 +1,12 @@
 # Сборка LabelMaker.exe для Windows.
 # Запуск вручную: вкладка Actions → Build Windows exe → Run workflow (exe появится в Artifacts).
-# Релиз: git tag v2.0 && git push --tags — exe автоматически прикрепится к новому релизу.
+# Релиз: Releases → Draft a new release → тег vX.Y → Publish — exe и пример таблицы прикрепятся сами.
 name: Build Windows exe
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -36,10 +36,9 @@ jobs:
           path: dist/LabelMaker.exe
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/LabelMaker.exe
             example.xlsx
-          generate_release_notes: true

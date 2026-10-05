@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label Maker — наклейки для щита</title>
+<meta name="description" content="Бесплатная программа для печати диспетчерских наклеек на панель электрощита под модульные аппараты. Достаточно таблицы Excel; схему рисовать не нужно.">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1f21; --muted: #5f6368; --line: #d9dcdf;
+    --soft: #f4f5f6; --accent: #0b5cad; --code-bg: #f1f3f5; --warn: #fff4d6; --warn-line: #e3b341;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16181b; --fg: #e4e6e8; --muted: #9aa0a6; --line: #33373c;
+      --soft: #1e2125; --accent: #6aa9ec; --code-bg: #23272c; --warn: #2e2715; --warn-line: #8a6d1f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16181b; --fg: #e4e6e8; --muted: #9aa0a6; --line: #33373c;
+    --soft: #1e2125; --accent: #6aa9ec; --code-bg: #23272c; --warn: #2e2715; --warn-line: #8a6d1f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.6 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+  h2 { font-size: 1.4rem; margin: 48px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p, li { max-width: 72ch; }
+  a { color: var(--accent); }
+  .lead { color: var(--muted); font-size: 1.1rem; margin: 0 0 24px; }
+  code, kbd {
+    font-family: Consolas, "SF Mono", Menlo, monospace; font-size: 0.92em;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+  }
+  kbd { border: 1px solid var(--line); }
+  pre {
+    background: var(--code-bg); padding: 12px 14px; border-radius: 6px;
+    overflow-x: auto; font-size: 0.92rem; line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; }
+  figure { margin: 20px 0; }
+  figure img { width: 100%; height: auto; display: block; border: 1px solid var(--line); background: #fff; }
+  figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+  .tablewrap { overflow-x: auto; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-weight: 600; }
+  .note { background: var(--warn); border-left: 4px solid var(--warn-line); padding: 10px 14px; border-radius: 4px; margin: 16px 0; }
+  .toc { background: var(--soft); padding: 14px 20px; border-radius: 6px; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #999; vertical-align: -2px; margin-right: 6px; }
+  .download { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; }
+  .geom { max-width: 520px; width: 100%; height: auto; color: var(--fg); }
+  ol.steps > li { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Label Maker — наклейки для электрощита</h1>
+<p class="lead">Программа печатает диспетчерские надписи на панель щита под модульные аппараты: обозначение сверху, назначение линии снизу. Ширина каждой наклейки равна ширине аппарата. Результат — PDF для печати в масштабе 1:1.</p>
+<p>Схему рисовать не нужно, бренд аппаратов не важен. Заполните таблицу Excel в пять колонок — обозначение, три строки описания, число модулей — и получите лист наклеек. Подходит и для нового щита, и для перемаркировки старого. Таблицу можно набить прямо у щита, хоть с телефона.</p>
+<p>Если щит спроектирован в AutoCAD Electrical, отчёт из него загружается напрямую, без перепечатки.</p>
+
+<p><a class="download" href="https://github.com/allexx51-dev/label-maker/releases/latest">Скачать LabelMaker.exe</a></p>
+<p>Для Windows, Python не нужен. Исходный код, пример таблицы и обсуждение — на <a href="https://github.com/allexx51-dev/label-maker">GitHub</a>.</p>
+
+<figure>
+  <img alt="Пример листа наклеек: верхний ряд — вводные аппараты разной ширины, нижний — групповые автоматы по одному модулю" src="data:image/png;base64,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agd8Z+dmUCyS5+JNq1/kNd520mIO19wZXiyfyaRBzieQpFKuF405ymPeLi7HwEAAEPvQng3mXAkHTBOIGdV+IRUqLVWnI2an2rkZFIf30+vb9Uy2jM6Hqu2KLJ7PZNIgpztzCrXVyu96Xnk2GwCQ2i/DXz4g2ngVMWwxZ59oeF3RXfgejDX5Fq+r9QupUWmp97wv9ctQTj6W2doMisO1z/GWpx317j59MHxXcV32ZdIg58q//PVTudJQtfKj72HrA2uu5Vxa0vQPj4X1AOCHYWgZzUZz7nnfKnSL0E2PwrUfLSqo9AupUmmph+dIPzWee+rO3TNftuqbbHUzKCZ77zTpb0e17J57w3beV3wjSMcwRWQ32Bg3sfpB5jlbrSyEWKg8pSd0vRBCiGZmo3O80eKMnttzq0jxuLNYw7diTJsSQ0xf7YMetisIsQvYpi80Qn/Tp9yq9ovZx5etcWyTeUsJIf4vTGn6gSk2NwNd16jabG8vb5DnPIUXVBau2GeYHVXE9jEq8Md95GT+NR9/samV8qgeC7clpFao//SoEDZUyV2dinpSXxg1YdNty7Znv9hLpaX6dVm29ehN7xrtRja3sRkUkwd7lfw6S8rvUyQHf6lCBEBCsY6b5keONjGU5o0bP8e18RDHsSv03LT5aY21j1Hz8J4GERHZjUmDiIiYNIiIqPjxngbd0/jR2D0E3tMgjhtntA/vaRARUVEwaRAREZMGERExaRAREZMGERExaRAREZMGERExaRARETFpEBERkwYRETFpEBERkwYRETFpEBERkwYRERGTBhERMWkQERGTBhERMWkQERGTBhERMWkQERExaRAREZMGERExaRAREZMGERExaRAREZMGERExaRARETFpEBERkwYRETFpEBERkwYRETFpEBERkwYRERGTBhERMWkQERGTBhERMWkQERGTBhERMWkQERExaRAREZMGERExaRAREZMGERExaRAREZMGERExaRARETFpEBERkwYRETFpEBERkwYRETFpEBERkwYRERGTBhERMWkQERGTBhERMWkQERGTBhERMWkQERExaRAREZMGERExaRAREZMGERExaRAREZMGERERkwYRETlCEsoE24KIiNQInmkQEVEReLEJiEhLR7LkNklDU70mMR7GU4ri0RoN9he5C16eIiIiJg0iImLSICIiJg0iImLS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">
+  <figcaption>Пример вывода. Верхний ряд — вводная рейка, нижний — групповые линии. Длинные слова программа уменьшает, чтобы они поместились в ширину модуля.</figcaption>
+</figure>
+
+<nav class="toc">
+<strong>Содержание</strong>
+<ol>
+  <li><a href="#need">Что понадобится</a></li>
+  <li><a href="#install">Установка</a></li>
+  <li><a href="#data">Подготовка таблицы</a></li>
+  <li><a href="#load">Загрузка и сопоставление колонок</a></li>
+  <li><a href="#table">Работа с таблицей</a></li>
+  <li><a href="#width">Ширина наклеек и словарь ширин</a></li>
+  <li><a href="#rows">Ряды и листы</a></li>
+  <li><a href="#settings">Настройки</a></li>
+  <li><a href="#print">Предпросмотр, PDF и печать</a></li>
+  <li><a href="#files">Файлы программы</a></li>
+  <li><a href="#faq">Проблемы и решения</a></li>
+</ol>
+</nav>
+
+<h2 id="need">1. Что понадобится</h2>
+<ul>
+  <li>Windows 10 или 11. На Linux и macOS программа тоже запустится, пути к шрифтам там другие.</li>
+  <li>Python 3.9 или новее с сайта <a href="https://www.python.org/downloads/">python.org</a>.</li>
+  <li>Четыре библиотеки Python: <code>reportlab</code> (создание PDF), <code>pandas</code> (чтение таблиц), <code>openpyxl</code> (формат .xlsx), <code>pillow</code> (картинка предпросмотра).</li>
+  <li>Шрифт <code>ISOCPEUR.ttf</code> — чертёжный шрифт, как в AutoCAD. Он ставится вместе с AutoCAD и лежит в <code>C:\Windows\Fonts</code>. Без него программа возьмёт Arial.</li>
+</ul>
+
+<h2 id="install">2. Установка</h2>
+
+<h3>2.0. Быстрый способ: готовый exe</h3>
+<ol class="steps">
+  <li>Скачайте <code>LabelMaker.exe</code> со страницы <a href="https://github.com/allexx51-dev/label-maker/releases/latest">Releases</a>.</li>
+  <li>Положите его в отдельную папку, например <code>D:\LabelMaker</code>. Рядом программа создаст свои файлы настроек.</li>
+  <li>Скопируйте туда же <code>ISOCPEUR.ttf</code> из <code>C:\Windows\Fonts</code>, если он там есть.</li>
+  <li>Запустите <code>LabelMaker.exe</code>. Первый запуск занимает 5–10 секунд — программа распаковывается.</li>
+</ol>
+<div class="note">Windows может показать «Система Windows защитила ваш компьютер»: у бесплатных программ нет платной цифровой подписи. Нажмите <strong>Подробнее → Выполнить в любом случае</strong>. Исходный код открыт на GitHub, exe собирается из него автоматически.</div>
+<p>Разделы 2.1–2.4 нужны, только если вы хотите запускать программу через Python.</p>
+
+<h3>2.1. Python</h3>
+<ol class="steps">
+  <li>Скачайте установщик с <a href="https://www.python.org/downloads/">python.org</a> и запустите.</li>
+  <li>На первом экране отметьте <strong>Add python.exe to PATH</strong>. Без этой галки команда <code>python</code> в командной строке работать не будет.</li>
+  <li>Нажмите <strong>Install Now</strong>. Модуль окон tkinter входит в стандартную установку, отдельно его ставить не нужно.</li>
+</ol>
+<div class="note">Python из Microsoft Store иногда приходит без tkinter. Если при запуске появится ошибка <code>No module named 'tkinter'</code>, удалите эту версию и поставьте Python с python.org.</div>
+
+<h3>2.2. Библиотеки</h3>
+<p>Нажмите <kbd>Win</kbd>+<kbd>R</kbd>, введите <code>cmd</code>, нажмите <kbd>Enter</kbd>. В открывшейся командной строке выполните:</p>
+<pre><code>python -m pip install --upgrade reportlab pandas openpyxl pillow</code></pre>
+<p>Для старых файлов Excel формата <code>.xls</code> добавьте ещё одну библиотеку:</p>
+<pre><code>python -m pip install xlrd</code></pre>
+<p>Проверка, что всё на месте:</p>
+<pre><code>python -c "import reportlab, pandas, openpyxl, PIL, tkinter; print('OK')"</code></pre>
+<p>Ответ <code>OK</code> значит, что можно работать.</p>
+
+<h3>2.3. Программа</h3>
+<ol class="steps">
+  <li>Создайте папку, например <code>D:\LabelMaker</code>.</li>
+  <li>Положите в неё <code>label_maker.py</code> (<a href="https://github.com/allexx51-dev/label-maker/raw/main/label_maker.py">скачать</a>).</li>
+  <li>Положите туда же <code>ISOCPEUR.ttf</code>: скопируйте из <code>C:\Windows\Fonts</code>. Копия рядом с программой нужна, если на другом компьютере AutoCAD не установлен.</li>
+</ol>
+
+<h3>2.4. Запуск</h3>
+<p>Двойной щелчок по <code>label_maker.py</code>. Если файл открывается в блокноте, запустите из командной строки:</p>
+<pre><code>cd /d D:\LabelMaker
+python label_maker.py</code></pre>
+<p>При первом запуске программа создаст рядом с собой файлы <code>widths.json</code> и <code>settings.json</code>. В них хранятся словарь ширин и настройки.</p>
+
+<h2 id="data">3. Подготовка таблицы</h2>
+<p>Каждая наклейка — одна строка таблицы с пятью полями:</p>
+<div class="tablewrap">
+<table>
+  <tr><th>Поле</th><th>Что это</th><th>Где на наклейке</th><th>Пример</th></tr>
+  <tr><td>TAG1</td><td>обозначение аппарата</td><td>верхняя полоса, крупно</td><td>QF12</td></tr>
+  <tr><td>DESC1</td><td>описание, строка 1</td><td>под чертой</td><td>ОСВЕЩЕНИЕ</td></tr>
+  <tr><td>DESC2</td><td>описание, строка 2</td><td>ниже</td><td>КУХНЯ</td></tr>
+  <tr><td>DESC3</td><td>описание, строка 3</td><td>ниже</td><td>ЛЕВО</td></tr>
+  <tr><td>Ширина</td><td>сколько места занимает аппарат</td><td>ширина наклейки</td><td>1, 3, 54, УЗО 2P</td></tr>
+</table>
+</div>
+<h3>3.1. Таблица в Excel</h3>
+<p>Самый простой вариант — пять колонок без заголовка, по порядку:</p>
+<div class="tablewrap">
+<table>
+  <tr><th></th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th></tr>
+  <tr><th>1</th><td>QF1</td><td>ОСВЕЩЕНИЕ</td><td>КУХНЯ</td><td></td><td>1</td></tr>
+  <tr><th>2</th><td>QF2</td><td>РОЗЕТКИ</td><td>ГОСТИНАЯ</td><td></td><td>1</td></tr>
+  <tr><th>3</th><td>QD1</td><td>УЗО-1</td><td>РОЗЕТКИ</td><td></td><td>2</td></tr>
+  <tr><th>4</th><td>---</td><td></td><td></td><td></td><td></td></tr>
+  <tr><th>5</th><td>QF3</td><td>ВЫТЯЖКА</td><td></td><td></td><td>1</td></tr>
+</table>
+</div>
+<p>Можно сделать заголовок в первой строке: «Обозначение», «Описание 1», «Описание 2», «Описание 3», «Ширина» — или <code>TAG1</code>, <code>DESC1</code> и так далее. Тогда порядок колонок не важен.</p>
+<ul>
+  <li>Пустые строки программа пропускает.</li>
+  <li>Пустая колонка в середине таблицы, например незаполненный DESC3, остаётся на своём месте и ничего не сдвигает.</li>
+  <li>Если в ячейке формула, берётся значение, которое Excel сохранил при последнем пересчёте. Таблицу, собранную скриптом, откройте в Excel и сохраните, иначе такие ячейки будут пустыми.</li>
+  <li><code>---</code> и <code>===</code> в колонке TAG1 — служебные метки, см. <a href="#rows">раздел 7</a>.</li>
+</ul>
+
+<h3>3.2. Бонус: отчёт из AutoCAD Electrical</h3>
+<p>Названия полей TAG1 и DESC1–DESC3 совпадают с атрибутами AutoCAD Electrical (ACADE), поэтому отчёт ложится в программу без переделки.</p>
+<p>Сделайте отчёт по компонентам щита, в котором есть поля <code>TAG1</code>, <code>DESC1</code>, <code>DESC2</code>, <code>DESC3</code> и поле, по которому определяется ширина: своё поле с числом модулей или имя блока. Имена блоков у каждого свои, из своей библиотеки, поэтому один раз внесите их в словарь ширин (<a href="#width">раздел 6</a>). Отчёт отсортируйте в том порядке, в каком аппараты стоят на рейках. Сохраните в <code>.xlsx</code> или <code>.csv</code>.</p>
+<p>Строки с названием отчёта над заголовком мешать не будут: программа сама найдёт строку с заголовками колонок.</p>
+
+<h2 id="load">4. Загрузка и сопоставление колонок</h2>
+<ol class="steps">
+  <li>Нажмите <strong>Открыть Excel/CSV</strong> и выберите файл.</li>
+  <li>Откроется окно <strong>Колонки таблицы</strong>. Программа уже угадала строку заголовка и назначение колонок; внизу видны первые строки данных.</li>
+  <li>Проверьте назначения. Если программа ошиблась, выберите нужную колонку в выпадающем списке. <strong>(нет)</strong> означает, что поле останется пустым.</li>
+  <li>Если заголовка в таблице нет, поставьте <strong>Строка заголовка = 0</strong>. Колонки A–E тогда читаются как TAG1, DESC1, DESC2, DESC3, Ширина.</li>
+  <li>Нажмите <strong>Загрузить</strong>.</li>
+</ol>
+<p>Выбор колонок программа запоминает. В следующий раз таблица с теми же заголовками разберётся так же.</p>
+<p>Если в списке уже есть наклейки, программа спросит: <strong>Да</strong> — добавить к списку, <strong>Нет</strong> — заменить. Так можно собрать один лист из нескольких щитов.</p>
+<p>CSV читается в кодировке UTF-8 или Windows-1251, разделитель (запятая, точка с запятой, табуляция) определяется сам.</p>
+
+<h2 id="table">5. Работа с таблицей</h2>
+
+<h3>5.1. Редактирование</h3>
+<div class="tablewrap">
+<table>
+  <tr><th>Действие</th><th>Как</th></tr>
+  <tr><td>Изменить ячейку</td><td>двойной щелчок</td></tr>
+  <tr><td>Сохранить и перейти вниз</td><td><kbd>Enter</kbd></td></tr>
+  <tr><td>Сохранить и перейти в следующую колонку</td><td><kbd>Tab</kbd></td></tr>
+  <tr><td>Отменить правку</td><td><kbd>Esc</kbd></td></tr>
+  <tr><td>Удалить выделенные строки</td><td><kbd>Delete</kbd> или кнопка <strong>Удалить</strong></td></tr>
+  <tr><td>Выделить несколько строк</td><td><kbd>Ctrl</kbd>+щелчок, <kbd>Shift</kbd>+щелчок</td></tr>
+</table>
+</div>
+<p>В колонке <strong>Ширина</strong> при редактировании открывается список всех ключей словаря. Можно выбрать из списка или ввести своё значение.</p>
+
+<h3>5.2. Кнопки</h3>
+<div class="tablewrap">
+<table>
+  <tr><th>Кнопка</th><th>Что делает</th></tr>
+  <tr><td>Открыть Excel/CSV</td><td>загрузка таблицы</td></tr>
+  <tr><td>Сохранить Excel</td><td>сохраняет текущий список в .xlsx с заголовками TAG1, DESC1, DESC2, DESC3, WIDTH</td></tr>
+  <tr><td>Добавить</td><td>новая строка под выделенной, сразу открывается на ввод</td></tr>
+  <tr><td>▲ ▼</td><td>сдвиг выделенных строк вверх или вниз</td></tr>
+  <tr><td>Новый ряд / Новая страница</td><td>вставляют метку <code>---</code> или <code>===</code> перед выделенной строкой</td></tr>
+  <tr><td>Словарь ширин</td><td>таблица соответствий «ключ → миллиметры»</td></tr>
+  <tr><td>Настройки</td><td>размеры, шрифты, формат листа</td></tr>
+  <tr><td>Шрифт…</td><td>выбрать другой TTF-файл</td></tr>
+  <tr><td>Предпросмотр</td><td>лист в том виде, в каком он будет напечатан</td></tr>
+  <tr><td>Сохранить PDF</td><td>файл для печати</td></tr>
+</table>
+</div>
+<p>Колонка <strong>мм</strong> справа показывает, какую ширину программа взяла для наклейки. Внизу окна — число наклеек, листов и замечаний. Если выделить строку с замечанием, его текст появится в строке состояния.</p>
+
+<h3>5.3. Цвета строк</h3>
+<ul>
+  <li><span class="swatch" style="background:#cceeff"></span>ширина задана числом модулей из словаря</li>
+  <li><span class="swatch" style="background:#ccffcc"></span>ширина задана именем блока из словаря</li>
+  <li><span class="swatch" style="background:#e8e8e8"></span>ширина задана в миллиметрах</li>
+  <li><span class="swatch" style="background:#ffffcc"></span>ширина пустая, взято значение по умолчанию</li>
+  <li><span class="swatch" style="background:#ff9191"></span>такого ключа в словаре нет, взято значение по умолчанию</li>
+  <li><span class="swatch" style="background:#ffc080"></span>текст не помещается в наклейку даже минимальным кеглем</li>
+  <li><span class="swatch" style="background:#d0d0f0"></span>служебная метка нового ряда или страницы</li>
+</ul>
+<p>Красные и оранжевые строки нужно исправить до печати. При сохранении PDF программа предупредит, если они остались.</p>
+
+<h2 id="width">6. Ширина наклеек и словарь ширин</h2>
+<p>В колонке ширины допустимы три вида значений:</p>
+<div class="tablewrap">
+<table>
+  <tr><th>Что написано</th><th>Как понимается</th><th>Пример → результат</th></tr>
+  <tr><td>целое число, которое есть в словаре</td><td>число модулей</td><td><code>3</code> → 54 мм</td></tr>
+  <tr><td>имя, которое есть в словаре</td><td>тип аппарата или имя блока ACADE — то, что вы сами внесли в словарь</td><td><code>УЗО 2P</code> → 36 мм</td></tr>
+  <tr><td>любое другое число</td><td>миллиметры</td><td><code>17,5</code>, <code>17.5</code>, <code>17,5мм</code> → 17,5 мм</td></tr>
+</table>
+</div>
+<div class="note">Число из словаря всегда считается количеством модулей. Если в словаре есть ключ <code>8</code>, то <code>8</code> в таблице даст 141 мм, а не 8 мм. Наклейка в 8 мм на практике не встречается, но помнить об этом правиле нужно.</div>
+
+<h3>6.1. Сравнение имён</h3>
+<p>Имена сравниваются без учёта регистра и лишних пробелов. Одинаковые по виду русские и латинские буквы (А/A, В/B, Е/E, К/K, М/M, Н/H, О/O, Р/P, С/C, Т/T, Х/X, У/Y) считаются одной буквой. Поэтому <code>АВТОМАТ 3P</code> с латинской P найдёт запись <code>АВТОМАТ 3Р</code> с русской Р. В чертежах такая путаница встречается постоянно.</p>
+
+<h3>6.2. Словарь</h3>
+<p>Кнопка <strong>Словарь ширин</strong> открывает список всех ключей. <strong>Добавить</strong>: если ввести цифры, запись попадёт в числа модулей, если текст — в имена. Двойной щелчок по записи открывает правку ширины. Изменения сразу сохраняются в <code>widths.json</code> и применяются к таблице.</p>
+<p>Изначально в словаре только числа модулей:</p>
+<div class="tablewrap">
+<table>
+  <tr><th>Модулей</th><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td><td>6</td><td>7</td><td>8</td></tr>
+  <tr><th>мм</th><td>18</td><td>36</td><td>54</td><td>71</td><td>88</td><td>105</td><td>123</td><td>141</td></tr>
+</table>
+</div>
+<p>По стандарту DIN 43880 модуль равен 17,5 мм, но фактический шаг аппаратов разных производителей отличается на доли миллиметра. На длинном ряду ошибка набегает. Подгоните словарь под свои аппараты и прорези в панели: распечатайте пробный ряд, приложите к рейке, исправьте.</p>
+<p>Имена добавляйте сами — те, которыми удобно пользоваться: <code>АВТОМАТ 3P</code>, <code>УЗО 4P</code>, <code>РЕЛЕ НАПРЯЖЕНИЯ</code> или имена блоков из своей библиотеки ACADE. Тогда в таблице можно писать тип аппарата, а не считать модули.</p>
+
+<h2 id="rows">7. Ряды и листы</h2>
+<p>Наклейки ставятся слева направо. Когда следующая не помещается по ширине листа, программа начинает новый ряд. Когда ряд не помещается по высоте, начинается новый лист.</p>
+<p>Чтобы ряды на листе совпадали с рейками в щите, используйте служебные метки в колонке TAG1:</p>
+<ul>
+  <li><code>---</code> — следующая наклейка начинает новый ряд. Ставьте между рейками.</li>
+  <li><code>===</code> — следующая наклейка начинает новый лист. Удобно разделять панели или щиты.</li>
+</ul>
+<p>Остальные колонки у служебной строки можно не заполнять. Метки вставляются кнопками <strong>Новый ряд</strong> и <strong>Новая страница</strong>.</p>
+
+<h2 id="settings">8. Настройки</h2>
+<p>Кнопка <strong>Настройки</strong>. <strong>Применить</strong> обновляет таблицу и предпросмотр, не закрывая окна, — удобно подбирать размеры. <strong>По умолчанию</strong> возвращает исходные значения. Всё сохраняется в <code>settings.json</code>.</p>
+
+<figure>
+<svg class="geom" viewBox="0 0 520 266" role="img" aria-label="Размеры наклейки: высота 25 мм, полоса тега 7 мм, центр первой строки описания на 3 мм ниже черты, шаг строк 5 мм">
+  <g fill="none" stroke="currentColor" stroke-width="2">
+    <rect x="20" y="20" width="288" height="200"/>
+    <line x1="20" y1="76" x2="308" y2="76"/>
+  </g>
+  <g fill="currentColor" font-family="Consolas, monospace" text-anchor="middle">
+    <text x="164" y="58" font-size="26">QF12</text>
+    <text x="164" y="108" font-size="20">ОСВЕЩЕНИЕ</text>
+    <text x="164" y="148" font-size="20">КУХНЯ</text>
+    <text x="164" y="188" font-size="20">ЛЕВО</text>
+  </g>
+  <g stroke="currentColor" stroke-width="1" opacity="0.55" stroke-dasharray="4 3">
+    <line x1="308" y1="100" x2="360" y2="100"/>
+    <line x1="308" y1="140" x2="420" y2="140"/>
+    <line x1="308" y1="180" x2="420" y2="180"/>
+  </g>
+  <g stroke="currentColor" stroke-width="1.2" fill="none">
+    <line x1="470" y1="20" x2="470" y2="220"/><line x1="462" y1="20" x2="478" y2="20"/><line x1="462" y1="220" x2="478" y2="220"/>
+    <line x1="330" y1="20" x2="330" y2="76"/><line x1="322" y1="20" x2="338" y2="20"/><line x1="322" y1="76" x2="338" y2="76"/>
+    <line x1="352" y1="76" x2="352" y2="100"/><line x1="344" y1="100" x2="360" y2="100"/><line x1="344" y1="76" x2="360" y2="76"/>
+    <line x1="410" y1="140" x2="410" y2="180"/><line x1="402" y1="140" x2="418" y2="140"/><line x1="402" y1="180" x2="418" y2="180"/>
+    <line x1="20" y1="236" x2="308" y2="236"/><line x1="20" y1="228" x2="20" y2="244"/><line x1="308" y1="228" x2="308" y2="244"/>
+  </g>
+  <g fill="currentColor" font-family="-apple-system, Segoe UI, Arial, sans-serif" font-size="13">
+    <text x="484" y="125">25</text>
+    <text x="338" y="52">7</text>
+    <text x="360" y="92">3</text>
+    <text x="424" y="165">5</text>
+    <text x="164" y="258" text-anchor="middle">ширина = ширине аппарата</text>
+  </g>
+</svg>
+<figcaption>Геометрия наклейки по умолчанию, мм: высота 25, полоса тега 7, центр первой строки описания на 3 ниже черты, шаг строк 5.</figcaption>
+</figure>
+
+<div class="tablewrap">
+<table>
+  <tr><th>Параметр</th><th>По умолчанию</th><th>Что меняет</th></tr>
+  <tr><td>Формат листа</td><td>A4</td><td>A4 или A3</td></tr>
+  <tr><td>Ориентация</td><td>альбомная</td><td>альбомная или книжная</td></tr>
+  <tr><td>Поля листа</td><td>5 мм</td><td>отступ от краёв листа; меньше 4–5 мм многие принтеры не печатают</td></tr>
+  <tr><td>Зазор по горизонтали</td><td>0 мм</td><td>промежуток между соседними наклейками; 0 — общая линия реза</td></tr>
+  <tr><td>Зазор между рядами</td><td>0 мм</td><td>промежуток между рядами</td></tr>
+  <tr><td>Высота наклейки</td><td>25 мм</td><td>под высоту окна в панели щита</td></tr>
+  <tr><td>Высота полосы тега</td><td>7 мм</td><td>где проходит черта под обозначением</td></tr>
+  <tr><td>Центр 1-й строки описания</td><td>3 мм</td><td>насколько ниже черты стоит DESC1</td></tr>
+  <tr><td>Шаг строк описания</td><td>5 мм</td><td>расстояние между DESC1, DESC2, DESC3</td></tr>
+  <tr><td>Кегль тега</td><td>4 мм</td><td>высота шрифта обозначения</td></tr>
+  <tr><td>Кегль описания</td><td>3 мм</td><td>высота шрифта описаний</td></tr>
+  <tr><td>Минимальный кегль</td><td>1,5 мм</td><td>мельче этого текст не уменьшается</td></tr>
+  <tr><td>Если не влезает</td><td>уменьшить</td><td>уменьшить — меньше кегль; сжать — буквы уже по ширине, высота сохраняется (как коэффициент сжатия в AutoCAD)</td></tr>
+  <tr><td>Поле текста</td><td>0,7 мм</td><td>отступ текста от боковых линий</td></tr>
+  <tr><td>Толщина линий</td><td>0,25 мм</td><td>рамка и черта</td></tr>
+  <tr><td>Ширина по умолчанию</td><td>18 мм</td><td>для пустой или нераспознанной ширины</td></tr>
+  <tr><td>Подпись листа</td><td>пусто</td><td>текст в правом нижнем углу, к нему добавляется номер листа: <code>РЩ1-П1</code> → <code>РЩ1-П1-1</code>, <code>РЩ1-П1-2</code></td></tr>
+</table>
+</div>
+<p>Кегль задаётся в миллиметрах высоты шрифта, как в AutoCAD. Высота заглавной буквы — около 70 % от указанного значения, точная доля зависит от шрифта.</p>
+
+<h2 id="print">9. Предпросмотр, PDF и печать</h2>
+<p><strong>Предпросмотр</strong> рисует лист тем же шрифтом и по тем же размерам, что и PDF: что видно на экране, то и выйдет из принтера. Кнопки <strong>−</strong> и <strong>+</strong> меняют масштаб, колесо мыши листает страницы. Строка, выделенная в таблице, подсвечивается на листе жёлтым — так легко найти нужную наклейку. Окно можно держать открытым: оно обновляется при каждой правке.</p>
+<p><strong>Сохранить PDF</strong> записывает файл. Шрифт встраивается в PDF, поэтому файл печатается одинаково на любом компьютере.</p>
+<h3>Печать</h3>
+<ol class="steps">
+  <li>Откройте PDF в Adobe Reader, Foxit или браузере.</li>
+  <li>В настройках печати выберите <strong>Фактический размер</strong> (Actual size) или масштаб 100 %. Режим «Подогнать по размеру страницы» уменьшит наклейки на несколько процентов, и они не совпадут с аппаратами.</li>
+  <li>Первый лист напечатайте на обычной бумаге и приложите к рейке. Если шаг расходится — поправьте словарь ширин.</li>
+  <li>Для щита подойдёт самоклеящаяся бумага A4 без разметки или плотная бумага под прозрачное окно панели.</li>
+</ol>
+
+<h2 id="files">10. Файлы программы</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Файл</th><th>Назначение</th></tr>
+  <tr><td><code>LabelMaker.exe</code> или <code>label_maker.py</code></td><td>сама программа</td></tr>
+  <tr><td><code>ISOCPEUR.ttf</code></td><td>шрифт; кладётся вручную</td></tr>
+  <tr><td><code>widths.json</code></td><td>словарь ширин; создаётся сам, можно переносить на другой компьютер</td></tr>
+  <tr><td><code>settings.json</code></td><td>настройки и запомненные сопоставления колонок; создаётся сам</td></tr>
+</table>
+</div>
+<p>Чтобы вернуть всё к исходному состоянию, закройте программу и удалите <code>widths.json</code> и <code>settings.json</code>.</p>
+<p>Порядок поиска шрифта: файл, выбранный кнопкой <strong>Шрифт…</strong>; <code>ISOCPEUR.ttf</code> рядом с программой; <code>isocpeur.ttf</code> в <code>C:\Windows\Fonts</code>; Arial. При запуске программа проверяет, есть ли в шрифте русские буквы, и предупреждает, если их нет.</p>
+
+<h2 id="faq">11. Проблемы и решения</h2>
+<div class="tablewrap">
+<table>
+  <tr><th>Что видите</th><th>Причина и решение</th></tr>
+  <tr><td><code>'python' не является внутренней или внешней командой</code></td><td>Python не прописан в PATH. Попробуйте <code>py</code> вместо <code>python</code> или переустановите Python с галкой <em>Add python.exe to PATH</em>.</td></tr>
+  <tr><td><code>No module named 'tkinter'</code></td><td>Python из Microsoft Store или установлен без tcl/tk. Поставьте с python.org.</td></tr>
+  <tr><td><code>No module named 'reportlab'</code> (или pandas, openpyxl, PIL)</td><td>Не установлены библиотеки, см. <a href="#install">раздел 2.2</a>. Если Python на компьютере не один, ставьте той же командой, которой запускаете программу: <code>py -m pip install …</code>.</td></tr>
+  <tr><td>Ошибка прав при установке библиотек</td><td>Добавьте ключ <code>--user</code>: <code>python -m pip install --user reportlab pandas openpyxl pillow</code>.</td></tr>
+  <tr><td>Файл <code>.xls</code> не открывается</td><td>Установите <code>xlrd</code> или пересохраните файл в Excel как <code>.xlsx</code>.</td></tr>
+  <tr><td>Предупреждение «нет кириллицы»</td><td>Выбранный шрифт без русских букв. Нажмите <strong>Шрифт…</strong> и укажите другой TTF.</td></tr>
+  <tr><td>Все строки красные</td><td>Колонка ширины сопоставлена не с той колонкой таблицы. Загрузите файл заново и проверьте окно сопоставления.</td></tr>
+  <tr><td>Имена блоков из ACADE красные</td><td>Таких ключей нет в словаре. Добавьте их через <strong>Словарь ширин</strong> — один раз на каждый тип аппарата.</td></tr>
+  <tr><td>Оранжевая строка</td><td>Текст не помещается даже минимальным кеглем. Разбейте его на две строки описания, сократите или переключите режим на «сжать».</td></tr>
+  <tr><td>«Файл занят» при сохранении PDF</td><td>PDF с таким именем открыт в просмотрщике. Закройте его или сохраните под другим именем.</td></tr>
+  <tr><td>Наклейки на бумаге уже, чем аппараты</td><td>При печати включено масштабирование. Выберите «Фактический размер».</td></tr>
+  <tr><td>Расхождение копится вдоль ряда</td><td>Шаг в словаре не совпадает с аппаратами. Измерьте длину 10 модулей на рейке, разделите на 10 и пересчитайте словарь.</td></tr>
+</table>
+</div>
+
+<p>Нашли ошибку или таблица загрузилась не так — напишите в <a href="https://github.com/allexx51-dev/label-maker/issues">Issues</a> на GitHub и приложите таблицу.</p>
+
+<p style="color:var(--muted); margin-top:40px">Программа бесплатная, лицензия MIT. Пользуйтесь, переделывайте под себя, передавайте коллегам.</p>
+
+</main>
+</body>
+</html>

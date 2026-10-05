@@ -1,0 +1,45 @@
+# Сборка LabelMaker.exe для Windows.
+# Запуск вручную: вкладка Actions → Build Windows exe → Run workflow (exe появится в Artifacts).
+# Релиз: git tag v2.0 && git push --tags — exe автоматически прикрепится к новому релизу.
+name: Build Windows exe
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build exe
+        run: pyinstaller --onefile --windowed --name LabelMaker label_maker.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LabelMaker
+          path: dist/LabelMaker.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/LabelMaker.exe
+            example.xlsx
+          generate_release_notes: true

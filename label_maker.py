@@ -322,6 +322,8 @@ def render_pdf(path, pages, font, st):
     pw, ph = page_size_mm(st)
     c = rl_canvas.Canvas(path, pagesize=(pw * MM_TO_PT, ph * MM_TO_PT))
     c.setTitle(st.get("sheet_title") or "Наклейки")
+    c.setAuthor("Label Maker")
+    c.setCreator("Label Maker — github.com/allexx51-dev/label-maker")
     P = lambda v: v * MM_TO_PT          # мм -> pt
     Y = lambda v: (ph - v) * MM_TO_PT   # мм от верха -> pt от низа
     for n, page in enumerate(pages, 1):

@@ -37,8 +37,11 @@ from reportlab.pdfgen import canvas as rl_canvas
 
 VERSION = "3.0"
 MM_TO_PT = 72 / 25.4
-FIELDS = ("tag", "d1", "d2", "d3", "width")
-FIELD_TITLES = ("TAG1 (стр. 1)", "DESC1 (стр. 2)", "DESC2 (стр. 3)", "DESC3 (стр. 4)", "Ширина")
+FIELDS = ("tag", "d1", "d2", "d3", "width", "dwidth")
+FIELD_TITLES = ("TAG1 (стр. 1)", "DESC1 (стр. 2)", "DESC2 (стр. 3)", "DESC3 (стр. 4)", "Ширина",
+                "Ширина на аппарат")
+DEV_NONE_WORDS = ("нет", "-", "—", "0", "none")
+DEV_TAG_WORDS = ("тег", "только тег", "tag")
 ROW_BREAK = "---"
 PAGE_BREAK = "==="
 
@@ -341,18 +344,37 @@ def label_spec(lab, widths, font, st, kind):
 
     # --- на аппарат: высоты букв заданы по заглавной (как в AutoCAD) -> кегль = высота / доля заглавной
     em = lambda cap: cap / font.cap
+    forced_w = None
+    ov = str(lab.get("dwidth", "")).strip()
+    if ov:                                  # ручное значение в строке важнее словаря и режима
+        low = ov.lower()
+        if low in DEV_NONE_WORDS:
+            dev = "none"
+        elif low in DEV_TAG_WORDS:
+            dev = "tag"
+        else:
+            try:
+                f = float(low.replace("мм", "").replace("mm", "").replace(",", ".").strip())
+            except ValueError:
+                f = 0
+            if f <= 0:
+                note = f"ширина на аппарат «{ov}» не распознана — взято по словарю"
+            else:
+                dev = "auto"
+                forced_w = dev_width(int(f), st) if f.is_integer() and int(f) in dev_widths_table(st) else f
     if dev == "none":
         return None, None
     if dev == "tag":
         h = st["dev_tag_h_mm"]
         return dict(w=st["dev_tag_w_mm"], h=h, header=None, pad=st["dev_pad_mm"],
                     min=em(st["dev_min_cap_mm"]), lines=[(tag, em(st["dev_tag_cap_mm"]), h / 2)]), None
-    single = dev == "single" or st.get("dev_mode") == "одномодульные"
+    single = forced_w is None and (dev == "single" or st.get("dev_mode") == "одномодульные")
     hh = st["dev_header_mm"]
     lines = [(tag, em(st["dev_tag_cap_mm"]), hh / 2)]
     lines += [(d, em(st["dev_desc_cap_mm"]), hh + st["dev_desc_first_mm"] + k * st["dev_desc_pitch_mm"])
               for k, d in enumerate(desc)]
-    return dict(w=dev_width(1 if single else n, st), h=st["dev_height_mm"], header=hh,
+    w = forced_w if forced_w is not None else dev_width(1 if single else n, st)
+    return dict(w=w, h=st["dev_height_mm"], header=hh,
                 pad=st["dev_pad_mm"], min=em(st["dev_min_cap_mm"]), lines=lines), note
 
 
@@ -503,6 +525,7 @@ HEADER_GUESS = {
     "d2": ["DESC2", "ОПИСАНИЕ2", "ОПИС2", "DESCRIPTION2"],
     "d3": ["DESC3", "ОПИСАНИЕ3", "ОПИС3", "DESCRIPTION3"],
     "width": ["WIDTH", "ШИРИНА", "BLOCKNAME", "BLOCK", "БЛОК", "ИМЯБЛОКА", "МОДУЛ"],
+    "dwidth": ["DEVWIDTH", "ШИРИНААППАРАТ", "НААППАРАТ", "АППАРАТ"],
 }
 
 
@@ -559,7 +582,7 @@ def guess_header_row(df):
 def guess_mapping(headers):
     mp = {}
     normed = [norm_header(h) for h in headers]
-    for field in FIELDS:
+    for field in ("dwidth",) + FIELDS[:-1]:
         for key in HEADER_GUESS[field]:
             for i, h in enumerate(normed):
                 if h and key in h and i not in mp.values():
@@ -740,11 +763,11 @@ class LabelApp:
 
         frame = tk.Frame(self.root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4)
-        cols = ("n",) + FIELDS + ("mm", "dev")
+        cols = ("n", "tag", "d1", "d2", "d3", "width", "mm", "dwidth")
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="extended")
-        heads = ("№",) + FIELD_TITLES + ("панель, мм", "аппарат, мм")
+        heads = ("№",) + FIELD_TITLES[:5] + ("панель, мм", "аппарат, мм")
         widths = (40, 100, 180, 180, 170, 200, 85, 95)
-        narrow = ("n", "mm", "dev")
+        narrow = ("n", "mm", "dwidth")
         for c, h, w in zip(cols, heads, widths):
             self.tree.heading(c, text=h)
             self.tree.column(c, width=w, anchor="center" if c in narrow else "w", stretch=c not in narrow)
@@ -769,6 +792,7 @@ class LabelApp:
                        ("empty", "пусто → по умолчанию"), ("unknown", "нет в словаре"),
                        ("issue", "текст не влезает"), ("marker", "разрыв ряда/страницы")):
             tk.Label(legend, text=txt, bg=colors[t], padx=6).pack(side=tk.LEFT, padx=2, pady=2)
+        tk.Label(legend, text="* — вручную", padx=6).pack(side=tk.LEFT, padx=2)
 
     def check_font(self):
         if not self.font.path:
@@ -790,9 +814,10 @@ class LabelApp:
     def device_cell(self, lab):
         """Текст колонки «аппарат, мм»: ширина, «тег» или «—»."""
         spec, _ = label_spec(lab, self.widths, self.font, self.st, "device")
+        mark = " *" if str(lab.get("dwidth", "")).strip() else ""
         if spec is None:
-            return "—"
-        return "тег" if spec["header"] is None else f"{spec['w']:g}"
+            return "—" + mark
+        return ("тег" if spec["header"] is None else f"{spec['w']:g}") + mark
 
     def refresh(self, keep_sel=None):
         self.relayout("device")
@@ -809,7 +834,7 @@ class LabelApp:
                 if i in issues or i in self.dev_issues:
                     tag = "issue" if kind != "unknown" else "unknown"
             self.tree.insert("", tk.END, iid=str(i),
-                             values=(i + 1,) + tuple(lab[f] for f in FIELDS) + (mm, dmm), tags=(tag,))
+                             values=(i + 1,) + tuple(lab[f] for f in FIELDS[:5]) + (mm, dmm), tags=(tag,))
         if keep_sel:
             sel = [str(i) for i in keep_sel if 0 <= i < len(self.labels)]
             self.tree.selection_set(sel)
@@ -831,60 +856,80 @@ class LabelApp:
     def selected(self):
         return sorted(int(i) for i in self.tree.selection())
 
+    EDIT_ORDER = ("tag", "d1", "d2", "d3", "width", "dwidth")
+
     def on_double_click(self, event):
         if self.tree.identify_region(event.x, event.y) != "cell":
             return
-        col = int(self.tree.identify_column(event.x)[1:]) - 2   # #1 — номер
+        cols = self.tree["columns"]
+        col = cols[int(self.tree.identify_column(event.x)[1:]) - 1]
         item = self.tree.identify_row(event.y)
-        if not item or not (0 <= col < len(FIELDS)):
+        if not item or col not in self.EDIT_ORDER:
             return
-        self.start_edit(int(item), col)
+        # после двойного щелчка таблица забирает фокус обратно — открываем поле, когда щелчок отработает
+        self.root.after(30, self.start_edit, int(item), col)
 
-    def start_edit(self, row, col):
+    def start_edit(self, row, field):
         self.finish_edit(save=False)
         item = str(row)
         self.tree.see(item)
-        bbox = self.tree.bbox(item, f"#{col + 2}")
+        self.tree.update_idletasks()
+        bbox = self.tree.bbox(item, field)
         if not bbox:
             return
-        field = FIELDS[col]
         if field == "width":
-            e = ttk.Combobox(self.tree, values=[str(k) for k in sorted(self.widths.numbers)] +
-                             sorted(self.widths.names))
+            values = [str(k) for k in sorted(self.widths.numbers)] + sorted(self.widths.names)
+        elif field == "dwidth":
+            values = ["", *[str(k) for k in sorted(dev_widths_table(self.st))], "тег", "нет"]
+        else:
+            values = None
+        if values is not None:
+            e = ttk.Combobox(self.tree, values=values)
+            e.bind("<<ComboboxSelected>>", lambda ev: self.finish_edit())
         else:
             e = tk.Entry(self.tree)
-        e.place(x=bbox[0], y=bbox[1], width=max(bbox[2], 160 if field == "width" else 0), height=bbox[3])
-        e.insert(0, self.labels[row][field])
+        e.place(x=bbox[0], y=bbox[1], width=max(bbox[2], 160 if values is not None else 0), height=bbox[3])
+        e.insert(0, self.labels[row].get(field, ""))
         e.select_range(0, tk.END)
-        e.focus_set()
-        self.edit_entry = (e, row, col)
+        e.focus_force()
+        self.edit_entry = (e, row, field)
         e.bind("<Return>", lambda ev: self.finish_edit(move=1))
-        e.bind("<Tab>", lambda ev: (self.finish_edit(move=0, next_col=True), "break")[1])
+        e.bind("<Tab>", lambda ev: (self.finish_edit(next_col=True), "break")[1])
         e.bind("<Escape>", lambda ev: self.finish_edit(save=False))
-        e.bind("<FocusOut>", lambda ev: self.root.after(50, self._focus_out_check, e))
+        for seq in ("<Control-a>", "<Control-A>", "<Control-Cyrillic_ef>", "<Control-Cyrillic_EF>"):
+            try:
+                e.bind(seq, lambda ev: (e.select_range(0, tk.END), e.icursor(tk.END), "break")[2])
+            except tk.TclError:      # нет такой клавиши в этой сборке Tk
+                pass
+        e.bind("<FocusOut>", lambda ev: self.root.after(80, self._focus_out_check, e))
 
     def _focus_out_check(self, e):
-        if self.edit_entry and self.edit_entry[0] is e and self.root.focus_get() is not e:
-            # раскрытый список Combobox тоже уводит фокус — не закрываем в этом случае
-            try:
-                if str(self.root.focus_get()).startswith(str(e)):
-                    return
-            except Exception:
-                pass
-            self.finish_edit()
+        if not (self.edit_entry and self.edit_entry[0] is e):
+            return
+        # Путь виджета с фокусом берём у самого Tk: окно раскрытого списка Combobox
+        # tkinter не знает, и focus_get() на нём падает — из-за этого поле закрывалось.
+        try:
+            path = str(self.root.tk.call("focus"))
+        except tk.TclError:
+            path = ""
+        if path.startswith(str(e)):          # фокус в самом поле или в его раскрытом списке
+            return
+        self.finish_edit()
 
     def finish_edit(self, save=True, move=0, next_col=False):
         if not self.edit_entry:
             return
-        e, row, col = self.edit_entry
+        e, row, field = self.edit_entry
         self.edit_entry = None
         val = e.get().strip()
         e.destroy()
-        if save:
-            self.labels[row][FIELDS[col]] = val
+        if save and val != str(self.labels[row].get(field, "")).strip():
+            self.labels[row][field] = val
             self.refresh(keep_sel=[row])
-        if next_col and col + 1 < len(FIELDS):
-            self.start_edit(row, col + 1)
+        self.tree.focus_set()
+        order = self.EDIT_ORDER
+        if next_col and order.index(field) + 1 < len(order):
+            self.start_edit(row, order[order.index(field) + 1])
         elif move and row + move < len(self.labels):
             self.tree.selection_set(str(row + move))
 
@@ -951,7 +996,7 @@ class LabelApp:
         if not path:
             return
         df = pd.DataFrame(self.labels, columns=list(FIELDS))
-        df.columns = ["TAG1", "DESC1", "DESC2", "DESC3", "WIDTH"]
+        df.columns = ["TAG1", "DESC1", "DESC2", "DESC3", "WIDTH", "DEV_WIDTH"]
         try:
             df.to_excel(path, index=False)
         except Exception as e:

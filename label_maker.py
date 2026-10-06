@@ -37,9 +37,14 @@ from reportlab.pdfgen import canvas as rl_canvas
 
 VERSION = "3.0"
 MM_TO_PT = 72 / 25.4
-FIELDS = ("tag", "d1", "d2", "d3", "width", "dwidth")
+FIELDS = ("tag", "d1", "d2", "d3", "width", "dwidth", "fill")
 FIELD_TITLES = ("TAG1 (стр. 1)", "DESC1 (стр. 2)", "DESC2 (стр. 3)", "DESC3 (стр. 4)", "Ширина",
-                "Ширина на аппарат")
+                "Ширина на аппарат", "Заливка тега")
+# Заливка полосы тега — светлые цвета, чёрный текст на них читается и на ч/б принтере не сливается
+FILL_COLORS = {
+    "жёлтый": "#FFF176", "зелёный": "#AED581", "голубой": "#81D4FA", "розовый": "#F48FB1",
+    "оранжевый": "#FFB74D", "сиреневый": "#B39DDB", "серый": "#BDBDBD",
+}
 DEV_NONE_WORDS = ("нет", "-", "—", "0", "none")
 DEV_TAG_WORDS = ("тег", "только тег", "tag")
 ROW_BREAK = "---"
@@ -327,6 +332,25 @@ def dev_width(n, st):
     return tbl[hi] + (n - hi) * step
 
 
+def parse_fill(value):
+    """'жёлтый' | 'Жёлтый' | 'желтый' | '#FFF176' -> (r, g, b) 0..1, None (пусто) или False (не понято)."""
+    s = str(value).strip()
+    if not s:
+        return None
+    key = s.lower().replace("ё", "е")
+    for name, hx in FILL_COLORS.items():
+        if name.replace("ё", "е") == key:
+            s = hx
+            break
+    h = s.lstrip("#")
+    if len(h) == 6:
+        try:
+            return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        except ValueError:
+            pass
+    return False
+
+
 def label_spec(lab, widths, font, st, kind):
     """
     Геометрия одной наклейки (мм) или None, если наклейка не нужна.
@@ -444,7 +468,13 @@ def layout(labels, widths, font, st, kind="panel"):
             texts.append((text, cx, y + cy + size * font.cap / 2, size, hs))
 
         line_y = None if spec["header"] is None else y + spec["header"]
-        pages[-1].append(dict(idx=idx, x=x, y=y, w=w, h=lh, line_y=line_y, texts=texts))
+        fill = parse_fill(lab.get("fill", ""))
+        if fill is False:
+            issues[idx] = f"цвет заливки «{lab.get('fill')}» не распознан"
+            fill = None
+        fill_h = (spec["header"] if spec["header"] is not None else lh) if fill else 0
+        pages[-1].append(dict(idx=idx, x=x, y=y, w=w, h=lh, line_y=line_y, texts=texts,
+                              fill=fill, fill_h=fill_h))
         x += w + st["h_gap_mm"]
         row_h = max(row_h, lh)
 
@@ -466,6 +496,10 @@ def render_pdf(path, pages, font, st, title=None):
     for n, page in enumerate(pages, 1):
         c.setLineWidth(P(st["line_width_mm"]))
         for it in page:
+            if it.get("fill"):
+                c.setFillColorRGB(*it["fill"])
+                c.rect(P(it["x"]), Y(it["y"] + it["fill_h"]), P(it["w"]), P(it["fill_h"]), stroke=0, fill=1)
+                c.setFillColorRGB(0, 0, 0)
             c.rect(P(it["x"]), Y(it["y"] + it["h"]), P(it["w"]), P(it["h"]))
             if it["line_y"] is not None:
                 c.line(P(it["x"]), Y(it["line_y"]), P(it["x"] + it["w"]), Y(it["line_y"]))
@@ -497,6 +531,8 @@ def render_page_image(page, page_no, font, st, ppm, mark=None):
         x1, y1 = (it["x"] + it["w"]) * ppm, (it["y"] + it["h"]) * ppm
         if mark is not None and it["idx"] == mark:
             d.rectangle([x0, y0, x1, y1], fill=(255, 245, 200))
+        if it.get("fill"):
+            d.rectangle([x0, y0, x1, y0 + it["fill_h"] * ppm], fill=tuple(int(round(v * 255)) for v in it["fill"]))
         d.rectangle([x0, y0, x1, y1], outline="black", width=lw)
         if it["line_y"] is not None:
             d.line([x0, it["line_y"] * ppm, x1, it["line_y"] * ppm], fill="black", width=lw)
@@ -529,6 +565,7 @@ HEADER_GUESS = {
     "d3": ["DESC3", "ОПИСАНИЕ3", "ОПИС3", "DESCRIPTION3"],
     "width": ["WIDTH", "ШИРИНА", "BLOCKNAME", "BLOCK", "БЛОК", "ИМЯБЛОКА", "МОДУЛ"],
     "dwidth": ["DEVWIDTH", "ШИРИНААППАРАТ", "НААППАРАТ", "АППАРАТ"],
+    "fill": ["FILL", "ЗАЛИВКА", "ЦВЕТ", "COLOR"],
 }
 
 
@@ -585,7 +622,7 @@ def guess_header_row(df):
 def guess_mapping(headers):
     mp = {}
     normed = [norm_header(h) for h in headers]
-    for field in ("dwidth",) + FIELDS[:-1]:
+    for field in ("dwidth",) + tuple(f for f in FIELDS if f != "dwidth"):
         for key in HEADER_GUESS[field]:
             for i, h in enumerate(normed):
                 if h and key in h and i not in mp.values():
@@ -749,8 +786,8 @@ class LabelApp:
                  ("Новая страница", lambda: self.insert_marker(PAGE_BREAK))],
             ],
             [   # оформление и вывод
-                [("Словарь ширин", self.edit_widths), ("Настройки", self.edit_settings),
-                 ("Шрифт…", self.choose_font)],
+                [("Заливка…", self.fill_menu), ("Словарь ширин", self.edit_widths),
+                 ("Настройки", self.edit_settings), ("Шрифт…", self.choose_font)],
                 [("Предпросмотр", self.preview), ("PDF на панель", lambda: self.export_pdf("panel")),
                  ("PDF на аппараты", lambda: self.export_pdf("device"))],
             ],
@@ -766,11 +803,11 @@ class LabelApp:
 
         frame = tk.Frame(self.root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4)
-        cols = ("n", "tag", "d1", "d2", "d3", "width", "mm", "dwidth")
+        cols = ("n", "tag", "d1", "d2", "d3", "width", "mm", "dwidth", "fill")
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="extended")
-        heads = ("№",) + FIELD_TITLES[:5] + ("панель, мм", "аппарат, мм")
-        widths = (40, 100, 180, 180, 170, 200, 85, 95)
-        narrow = ("n", "mm", "dwidth")
+        heads = ("№",) + FIELD_TITLES[:5] + ("панель, мм", "аппарат, мм", "заливка")
+        widths = (40, 95, 170, 165, 150, 185, 85, 95, 85)
+        narrow = ("n", "mm", "dwidth", "fill")
         for c, h, w in zip(cols, heads, widths):
             self.tree.heading(c, text=h)
             self.tree.column(c, width=w, anchor="center" if c in narrow else "w", stretch=c not in narrow)
@@ -837,7 +874,8 @@ class LabelApp:
                 if i in issues or i in self.dev_issues:
                     tag = "issue" if kind != "unknown" else "unknown"
             self.tree.insert("", tk.END, iid=str(i),
-                             values=(i + 1,) + tuple(lab[f] for f in FIELDS[:5]) + (mm, dmm), tags=(tag,))
+                             values=(i + 1,) + tuple(lab[f] for f in FIELDS[:5]) + (mm, dmm, lab.get("fill", "")),
+                             tags=(tag,))
         if keep_sel:
             sel = [str(i) for i in keep_sel if 0 <= i < len(self.labels)]
             self.tree.selection_set(sel)
@@ -859,7 +897,7 @@ class LabelApp:
     def selected(self):
         return sorted(int(i) for i in self.tree.selection())
 
-    EDIT_ORDER = ("tag", "d1", "d2", "d3", "width", "dwidth")
+    EDIT_ORDER = ("tag", "d1", "d2", "d3", "width", "dwidth", "fill")
 
     def on_double_click(self, event):
         if self.tree.identify_region(event.x, event.y) != "cell":
@@ -884,6 +922,8 @@ class LabelApp:
             values = [str(k) for k in sorted(self.widths.numbers)] + sorted(self.widths.names)
         elif field == "dwidth":
             values = ["", *[str(k) for k in sorted(dev_widths_table(self.st))], "тег", "нет"]
+        elif field == "fill":
+            values = ["", *FILL_COLORS]
         else:
             values = None
         if values is not None:
@@ -935,6 +975,25 @@ class LabelApp:
             self.start_edit(row, order[order.index(field) + 1])
         elif move and row + move < len(self.labels):
             self.tree.selection_set(str(row + move))
+
+    def fill_menu(self):
+        """Меню цветов у курсора: цвет ставится каждой выделенной строке."""
+        sel = [i for i in self.selected() if str(self.labels[i]["tag"]).strip() not in (ROW_BREAK, PAGE_BREAK)]
+        if not sel:
+            messagebox.showinfo("Заливка", "Выделите строки (Ctrl/Shift + щелчок), затем выберите цвет.")
+            return
+        m = tk.Menu(self.root, tearoff=0)
+        for name, hx in FILL_COLORS.items():
+            m.add_command(label=f"  {name}", background=hx, activebackground=hx,
+                          command=lambda n=name: self.set_fill(sel, n))
+        m.add_separator()
+        m.add_command(label="  без заливки", command=lambda: self.set_fill(sel, ""))
+        m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def set_fill(self, rows, value):
+        for i in rows:
+            self.labels[i]["fill"] = value
+        self.refresh(keep_sel=rows)
 
     def add_row(self):
         sel = self.selected()
@@ -999,7 +1058,7 @@ class LabelApp:
         if not path:
             return
         df = pd.DataFrame(self.labels, columns=list(FIELDS))
-        df.columns = ["TAG1", "DESC1", "DESC2", "DESC3", "WIDTH", "DEV_WIDTH"]
+        df.columns = ["TAG1", "DESC1", "DESC2", "DESC3", "WIDTH", "DEV_WIDTH", "FILL"]
         try:
             df.to_excel(path, index=False)
         except Exception as e:

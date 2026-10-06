@@ -425,6 +425,7 @@ python label_maker.py</code></pre>
   <tr><td><code>'python' не является внутренней или внешней командой</code></td><td>Python не прописан в PATH. Попробуйте <code>py</code> вместо <code>python</code> или переустановите Python с галкой <em>Add python.exe to PATH</em>.</td></tr>
   <tr><td><code>No module named 'tkinter'</code></td><td>Python из Microsoft Store или установлен без tcl/tk. Поставьте с python.org.</td></tr>
   <tr><td><code>No module named 'reportlab'</code> (или pandas, openpyxl, PIL)</td><td>Не установлены библиотеки, см. <a href="#install">раздел 2.2</a>. Если Python на компьютере не один, ставьте той же командой, которой запускаете программу: <code>py -m pip install …</code>.</td></tr>
+  <tr><td>На одном компьютере <code>.py</code> запускается, на другом нет</td><td>На втором компьютере Python есть, а библиотек нет. Проверка: <code>python -m pip show reportlab pandas openpyxl pillow</code> — если пишет <code>Package(s) not found</code>, установите их (<a href="#install">раздел 2.2</a>). Или возьмите exe — ему не нужны ни Python, ни библиотеки.</td></tr>
   <tr><td>Ошибка прав при установке библиотек</td><td>Добавьте ключ <code>--user</code>: <code>python -m pip install --user reportlab pandas openpyxl pillow</code>.</td></tr>
   <tr><td>Файл <code>.xls</code> не открывается</td><td>Установите <code>xlrd</code> или пересохраните файл в Excel как <code>.xlsx</code>.</td></tr>
   <tr><td>Предупреждение «нет кириллицы»</td><td>Выбранный шрифт без русских букв. Нажмите <strong>Шрифт…</strong> и укажите другой TTF.</td></tr>

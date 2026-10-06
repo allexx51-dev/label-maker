@@ -196,8 +196,8 @@ DEFAULT_SETTINGS = {
     "dev_desc_pitch_mm": 2.4,
     "dev_min_cap_mm": 1.0,
     "dev_pad_mm": 0.4,
-    "dev_tag_w_mm": 10.0,          # «только тег» (цокольные реле) — уточнить по месту
-    "dev_tag_h_mm": 5.0,
+    "dev_tag_w_mm": 14.0,          # «только тег» (цокольные реле), замер по месту
+    "dev_tag_h_mm": 6.0,
     "last_mapping": {},
 }
 
@@ -213,6 +213,9 @@ def load_settings():
     old = {"landscape": "альбомная", "portrait": "книжная", "shrink": "уменьшить", "squeeze": "сжать"}
     for k in ("orientation", "fit_mode"):
         s[k] = old.get(s[k], s[k])
+    # прежняя заглушка 10×5 мм для «только тег» -> замеренные 14×6
+    if s.get("dev_tag_w_mm") == 10.0 and s.get("dev_tag_h_mm") == 5.0:
+        s["dev_tag_w_mm"], s["dev_tag_h_mm"] = 14.0, 6.0
     return s
 
 

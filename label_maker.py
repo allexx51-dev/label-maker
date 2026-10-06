@@ -40,11 +40,13 @@ MM_TO_PT = 72 / 25.4
 FIELDS = ("tag", "d1", "d2", "d3", "width", "dwidth", "fill")
 FIELD_TITLES = ("TAG1 (стр. 1)", "DESC1 (стр. 2)", "DESC2 (стр. 3)", "DESC3 (стр. 4)", "Ширина",
                 "Ширина на аппарат", "Заливка тега")
-# Заливка полосы тега — светлые цвета, чёрный текст на них читается и на ч/б принтере не сливается
+# Заливка полосы тега — шесть пастельных цветов: чёрный текст на них читается,
+# на ч/б принтере они дают светло-серый и не забивают обозначение
 FILL_COLORS = {
-    "жёлтый": "#FFF176", "зелёный": "#AED581", "голубой": "#81D4FA", "розовый": "#F48FB1",
-    "оранжевый": "#FFB74D", "сиреневый": "#B39DDB", "серый": "#BDBDBD",
+    "жёлтый": "#FFF59D", "зелёный": "#C5E1A5", "голубой": "#B3E5FC",
+    "розовый": "#F8BBD0", "персиковый": "#FFCCBC", "сиреневый": "#D1C4E9",
 }
+FILL_ALIASES = {"оранжевый": "#FFCCBC", "серый": "#E0E0E0", "желтый": "#FFF59D", "зеленый": "#C5E1A5"}
 DEV_NONE_WORDS = ("нет", "-", "—", "0", "none")
 DEV_TAG_WORDS = ("тег", "только тег", "tag")
 ROW_BREAK = "---"
@@ -338,7 +340,7 @@ def parse_fill(value):
     if not s:
         return None
     key = s.lower().replace("ё", "е")
-    for name, hx in FILL_COLORS.items():
+    for name, hx in list(FILL_COLORS.items()) + list(FILL_ALIASES.items()):
         if name.replace("ё", "е") == key:
             s = hx
             break
@@ -779,16 +781,19 @@ class LabelApp:
     # ---------- интерфейс
     def build_ui(self):
         rows = [
-            [   # данные
+            [   # таблица
                 [("Открыть Excel/CSV", self.load_table), ("Сохранить Excel", self.save_table)],
                 [("Добавить", self.add_row), ("Удалить", self.delete_rows), ("▲", lambda: self.move(-1)),
                  ("▼", lambda: self.move(1)), ("Новый ряд", lambda: self.insert_marker(ROW_BREAK)),
                  ("Новая страница", lambda: self.insert_marker(PAGE_BREAK))],
+                [("Заливка…", self.fill_menu)],
             ],
             [   # оформление и вывод
-                [("Заливка…", self.fill_menu), ("Словарь ширин", self.edit_widths),
-                 ("Настройки", self.edit_settings), ("Шрифт…", self.choose_font)],
-                [("Предпросмотр", self.preview), ("PDF на панель", lambda: self.export_pdf("panel")),
+                [("Словарь ширин", self.edit_widths), ("Настройки", self.edit_settings),
+                 ("Шрифт…", self.choose_font)],
+                [("Предпросмотр: панель", lambda: self.preview("panel")),
+                 ("Предпросмотр: аппараты", lambda: self.preview("device"))],
+                [("PDF на панель", lambda: self.export_pdf("panel")),
                  ("PDF на аппараты", lambda: self.export_pdf("device"))],
             ],
         ]
@@ -804,9 +809,12 @@ class LabelApp:
         frame = tk.Frame(self.root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4)
         cols = ("n", "tag", "d1", "d2", "d3", "width", "mm", "dwidth", "fill")
-        self.tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="extended")
+        self.tree = ttk.Treeview(frame, columns=cols, show="tree headings", selectmode="extended")
+        self.tree.column("#0", width=30, minwidth=30, stretch=False, anchor="center")
+        self.tree.heading("#0", text="")
+        self.make_swatches()
         heads = ("№",) + FIELD_TITLES[:5] + ("панель, мм", "аппарат, мм", "заливка")
-        widths = (40, 95, 170, 165, 150, 185, 85, 95, 85)
+        widths = (40, 90, 160, 160, 140, 180, 85, 95, 85)
         narrow = ("n", "mm", "dwidth", "fill")
         for c, h, w in zip(cols, heads, widths):
             self.tree.heading(c, text=h)
@@ -816,6 +824,7 @@ class LabelApp:
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         vs.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.bind("<Double-1>", self.on_double_click)
+        self.tree.bind("<ButtonRelease-1>", self.on_single_click, add="+")
         self.tree.bind("<Delete>", lambda e: self.delete_rows())
         self.tree.bind("<<TreeviewSelect>>", lambda e: self.show_issue())
 
@@ -873,7 +882,8 @@ class LabelApp:
                 dmm = self.device_cell(lab)
                 if i in issues or i in self.dev_issues:
                     tag = "issue" if kind != "unknown" else "unknown"
-            self.tree.insert("", tk.END, iid=str(i),
+            sw = self.swatch_for(lab.get("fill", ""))
+            self.tree.insert("", tk.END, iid=str(i), image=sw if sw else "",
                              values=(i + 1,) + tuple(lab[f] for f in FIELDS[:5]) + (mm, dmm, lab.get("fill", "")),
                              tags=(tag,))
         if keep_sel:
@@ -897,15 +907,34 @@ class LabelApp:
     def selected(self):
         return sorted(int(i) for i in self.tree.selection())
 
-    EDIT_ORDER = ("tag", "d1", "d2", "d3", "width", "dwidth", "fill")
+    EDIT_ORDER = ("tag", "d1", "d2", "d3", "width", "dwidth")
+
+    def on_single_click(self, event):
+        """Щелчок по квадратику цвета слева — сразу список цветов."""
+        if self.tree.identify_column(event.x) == "#0" and self.tree.identify_region(event.x, event.y) == "tree":
+            item = self.tree.identify_row(event.y)
+            if item and str(self.labels[int(item)]["tag"]).strip() not in (ROW_BREAK, PAGE_BREAK):
+                rows = self.selected() if int(item) in self.selected() else [int(item)]
+                self.root.after(30, self.fill_popup, rows, event.x_root, event.y_root)
 
     def on_double_click(self, event):
         if self.tree.identify_region(event.x, event.y) != "cell":
             return
-        cols = self.tree["columns"]
-        col = cols[int(self.tree.identify_column(event.x)[1:]) - 1]
+        colid = self.tree.identify_column(event.x)
         item = self.tree.identify_row(event.y)
-        if not item or col not in self.EDIT_ORDER:
+        if not item:
+            return
+        if colid == "#0":           # квадратик цвета — обрабатывает одиночный щелчок
+            return
+        col = self.tree["columns"][int(colid[1:]) - 1]
+        if col == "fill":
+            row = int(item)
+            if str(self.labels[row]["tag"]).strip() in (ROW_BREAK, PAGE_BREAK):
+                return
+            rows = self.selected() if row in self.selected() else [row]
+            self.root.after(30, self.fill_popup, rows, event.x_root, event.y_root)
+            return
+        if col not in self.EDIT_ORDER:
             return
         # после двойного щелчка таблица забирает фокус обратно — открываем поле, когда щелчок отработает
         self.root.after(30, self.start_edit, int(item), col)
@@ -922,8 +951,6 @@ class LabelApp:
             values = [str(k) for k in sorted(self.widths.numbers)] + sorted(self.widths.names)
         elif field == "dwidth":
             values = ["", *[str(k) for k in sorted(dev_widths_table(self.st))], "тег", "нет"]
-        elif field == "fill":
-            values = ["", *FILL_COLORS]
         else:
             values = None
         if values is not None:
@@ -976,19 +1003,51 @@ class LabelApp:
         elif move and row + move < len(self.labels):
             self.tree.selection_set(str(row + move))
 
+    def make_swatches(self):
+        """Цветные квадратики 14×14 с рамкой — для списка цветов и для таблицы."""
+        self.swatches = {}
+        for name, hx in list(FILL_COLORS.items()) + [("", "#FFFFFF")]:
+            img = tk.PhotoImage(width=14, height=14)
+            img.put("#555555", to=(0, 0, 14, 14))
+            img.put(hx, to=(1, 1, 13, 13))
+            self.swatches[name] = img
+        self._swatch_cache = {}
+
+    def swatch_for(self, value):
+        """Квадратик для значения ячейки: цвет из палитры, свой #RRGGBB или ничего."""
+        rgb = parse_fill(value)
+        if not rgb:
+            return None
+        hx = "#%02X%02X%02X" % tuple(int(round(v * 255)) for v in rgb)
+        for name, h in FILL_COLORS.items():
+            if h.upper() == hx:
+                return self.swatches[name]
+        if hx not in self._swatch_cache:
+            img = tk.PhotoImage(width=14, height=14)
+            img.put("#555555", to=(0, 0, 14, 14))
+            img.put(hx, to=(1, 1, 13, 13))
+            self._swatch_cache[hx] = img
+        return self._swatch_cache[hx]
+
+    def fill_popup(self, rows, x, y):
+        """Список цветов с квадратиками; выбранный цвет ставится каждой строке из rows."""
+        m = tk.Menu(self.root, tearoff=0)
+        for name in FILL_COLORS:
+            m.add_command(label="  " + name, image=self.swatches[name], compound="left",
+                          command=lambda n=name: self.set_fill(rows, n))
+        m.add_separator()
+        m.add_command(label="  без заливки", image=self.swatches[""], compound="left",
+                      command=lambda: self.set_fill(rows, ""))
+        self._fill_menu = m          # держим ссылку, пока меню открыто
+        m.tk_popup(x, y)
+
     def fill_menu(self):
-        """Меню цветов у курсора: цвет ставится каждой выделенной строке."""
+        """Кнопка «Заливка…»: цвет для всех выделенных строк."""
         sel = [i for i in self.selected() if str(self.labels[i]["tag"]).strip() not in (ROW_BREAK, PAGE_BREAK)]
         if not sel:
             messagebox.showinfo("Заливка", "Выделите строки (Ctrl/Shift + щелчок), затем выберите цвет.")
             return
-        m = tk.Menu(self.root, tearoff=0)
-        for name, hx in FILL_COLORS.items():
-            m.add_command(label=f"  {name}", background=hx, activebackground=hx,
-                          command=lambda n=name: self.set_fill(sel, n))
-        m.add_separator()
-        m.add_command(label="  без заливки", command=lambda: self.set_fill(sel, ""))
-        m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        self.fill_popup(sel, self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     def set_fill(self, rows, value):
         for i in rows:
@@ -1279,12 +1338,16 @@ class LabelApp:
         tk.Button(bf, text="По умолчанию", command=reset, width=11).pack(side=tk.LEFT, padx=3)
 
     # ---------- предпросмотр
-    def preview(self):
+    def preview(self, kind="panel"):
+        self.preview_kind = kind
+        title = "Предпросмотр: " + ("на аппараты" if kind == "device" else "на панель") + " (1:1 с PDF)"
         if self.preview_win and self.preview_win.winfo_exists():
+            self.preview_win.title(title)
+            self.update_preview()
             self.preview_win.lift()
             return
         top = tk.Toplevel(self.root)
-        top.title("Предпросмотр (1:1 с PDF)")
+        top.title(title)
         top.geometry("1000x760")
         self.preview_win = top
         bar = tk.Frame(top)
@@ -1299,15 +1362,8 @@ class LabelApp:
         self.zoom_label = tk.Label(bar)
         self.zoom_label.pack(side=tk.LEFT, padx=6)
         tk.Label(bar, text="выделенная строка подсвечена", fg="gray").pack(side=tk.RIGHT, padx=6)
-        kind_var = tk.StringVar(value="на панель" if self.preview_kind == "panel" else "на аппараты")
-        cb = ttk.Combobox(bar, textvariable=kind_var, values=("на панель", "на аппараты"),
-                          state="readonly", width=12)
-        cb.pack(side=tk.LEFT, padx=8)
-
-        def set_kind(_=None):
-            self.preview_kind = "device" if kind_var.get() == "на аппараты" else "panel"
-            self.update_preview()
-        cb.bind("<<ComboboxSelected>>", set_kind)
+        tk.Button(bar, text="на панель", command=lambda: self.preview("panel")).pack(side=tk.LEFT, padx=(12, 1))
+        tk.Button(bar, text="на аппараты", command=lambda: self.preview("device")).pack(side=tk.LEFT, padx=1)
 
         fr = tk.Frame(top)
         fr.pack(fill=tk.BOTH, expand=True)

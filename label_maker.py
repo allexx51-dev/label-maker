@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Label Maker v2 — диспетчерские наклейки на панель щита под модульные аппараты.
+Label Maker v2 — диспетчерские наклейки на панель щита и на сами аппараты.
 
 Данные: TAG1 (строка 1) + DESC1..DESC3 (строки 2–4) + ширина.
 Ширина: число модулей (ключ словаря), имя блока ACADE (ключ словаря) или миллиметры.
@@ -14,6 +14,9 @@ PDF (reportlab) и предпросмотр (Pillow) рисуют один и т
   widths.json    — словарь ширин (создаётся автоматически)
   settings.json  — настройки (создаётся автоматически)
 
+Два комплекта из одной таблицы: наклейки на панель и наклейки на аппараты
+(дублируют панельные — панель сняли, надписи остались). PDF у каждого свой.
+
 Служебные значения в колонке TAG1:
   ---  → перевод на новый ряд (например, следующая DIN-рейка)
   ===  → новая страница
@@ -23,7 +26,7 @@ import json
 import os
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk, simpledialog
+from tkinter import filedialog, messagebox, ttk
 
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -66,10 +69,17 @@ def name_key(s):
     return " ".join(str(s).upper().translate(_LOOKALIKE).split())
 
 
+# Какая наклейка нужна на сам аппарат (задаётся в словаре для типа аппарата)
+DEV_KINDS = {"auto": "авто", "single": "1 модуль", "tag": "только тег", "none": "нет"}
+DEV_KINDS_BACK = {v: k for k, v in DEV_KINDS.items()}
+MODULE_MM = 17.5   # DIN 43880 — для пересчёта миллиметров в число модулей
+
+
 class WidthMap:
     def __init__(self):
         self.numbers = {}   # int -> mm
         self.names = {}     # исходное имя -> mm
+        self.dev = {}       # исходное имя -> auto | single | tag | none
         self.load()
 
     def load(self):
@@ -81,7 +91,14 @@ class WidthMap:
             except Exception as e:
                 messagebox.showwarning("widths.json", f"Не прочитан, взяты значения по умолчанию:\n{e}")
         self.numbers = {int(k): float(v) for k, v in data.get("numbers", {}).items()}
-        self.names = {str(k): float(v) for k, v in data.get("names", {}).items()}
+        self.names, self.dev = {}, {}
+        for k, v in data.get("names", {}).items():
+            if isinstance(v, dict):          # {"mm": 54, "dev": "tag"}
+                self.names[str(k)] = float(v.get("mm", 18))
+                if v.get("dev", "auto") in DEV_KINDS:
+                    self.dev[str(k)] = v["dev"]
+            else:                            # старый формат: просто число
+                self.names[str(k)] = float(v)
         if not os.path.exists(WIDTHS_FILE):
             self.save()
 
@@ -89,7 +106,8 @@ class WidthMap:
         """Возвращает True при успехе."""
         data = {
             "numbers": {str(k): v for k, v in sorted(self.numbers.items())},
-            "names": dict(sorted(self.names.items())),
+            "names": {k: ({"mm": v, "dev": self.dev[k]} if self.dev.get(k, "auto") != "auto" else v)
+                      for k, v in sorted(self.names.items())},
         }
         try:
             with open(WIDTHS_FILE, "w", encoding="utf-8") as f:
@@ -99,12 +117,28 @@ class WidthMap:
             messagebox.showerror("widths.json", f"Не удалось сохранить словарь ширин:\n{e}")
             return False
 
-    def find_name(self, s):
+    def find_key(self, s):
         k = name_key(s)
-        for name, mm in self.names.items():
+        for name in self.names:
             if name_key(name) == k:
-                return mm
+                return name
         return None
+
+    def find_name(self, s):
+        key = self.find_key(s)
+        return None if key is None else self.names[key]
+
+    def resolve_ex(self, value, default_mm):
+        """-> (ширина мм, вид, тип аппаратной наклейки, число модулей)"""
+        mm, kind = self.resolve(value, default_mm)
+        dev = "auto"
+        if kind == "name":
+            dev = self.dev.get(self.find_key(str(value).strip()), "auto")
+        if kind == "number":
+            n = int(float(str(value).replace(",", ".")))
+        else:
+            n = max(1, int(round(mm / MODULE_MM)))
+        return mm, kind, dev, n
 
     def resolve(self, value, default_mm):
         """-> (ширина мм, вид): number | name | mm | empty | unknown"""
@@ -147,6 +181,19 @@ DEFAULT_SETTINGS = {
     "sheet_title": "",             # подпись листа справа внизу, к ней добавится -N
     "font_path": "",
     "preview_px_per_mm": 3.0,
+    # --- наклейки на аппараты (высота букв — как в AutoCAD, по заглавной)
+    "dev_mode": "многомодульные",  # многомодульные — по ширине аппарата; одномодульные — на один полюс
+    "dev_widths": "13.7; 31.7; 48.8; 67.2",   # ширина на 1, 2, 3, 4 модуля; дальше — с тем же шагом
+    "dev_height_mm": 12.0,
+    "dev_header_mm": 4.0,
+    "dev_tag_cap_mm": 2.5,
+    "dev_desc_cap_mm": 1.7,
+    "dev_desc_first_mm": 1.6,      # центр 1-й строки описания ниже черты
+    "dev_desc_pitch_mm": 2.4,
+    "dev_min_cap_mm": 1.0,
+    "dev_pad_mm": 0.4,
+    "dev_tag_w_mm": 10.0,          # «только тег» (цокольные реле) — уточнить по месту
+    "dev_tag_h_mm": 5.0,
     "last_mapping": {},
 }
 
@@ -227,8 +274,9 @@ def page_size_mm(st):
     return w / MM_TO_PT, h / MM_TO_PT
 
 
-def fit_text(font, text, size_mm, avail_mm, st):
+def fit_text(font, text, size_mm, avail_mm, st, min_mm=None):
     """-> (кегль мм, горизонтальный масштаб, переполнение)"""
+    min_mm = st["font_min_mm"] if min_mm is None else min_mm
     w = font.width_mm(text, size_mm)
     if w <= avail_mm or w == 0:
         return size_mm, 1.0, False
@@ -238,14 +286,78 @@ def fit_text(font, text, size_mm, avail_mm, st):
             return size_mm, k, False
         return size_mm, 0.5, True
     new = size_mm * avail_mm / w
-    if new >= st["font_min_mm"]:
+    if new >= min_mm:
         return new, 1.0, False
-    return st["font_min_mm"], 1.0, True
+    return min_mm, 1.0, True
 
 
-def layout(labels, widths, font, st):
+def parse_dev_widths(s):
+    """'13.7; 31.7; 48.8; 67.2' -> [13.7, 31.7, 48.8, 67.2]; None, если записано с ошибкой."""
+    vals = []
+    for part in str(s).replace(",", ".").replace(";", " ").split():
+        try:
+            v = float(part)
+        except ValueError:
+            return None
+        if v <= 0:
+            return None
+        vals.append(v)
+    return vals or None
+
+
+def dev_widths_table(st):
+    vals = parse_dev_widths(st.get("dev_widths", "")) or [13.7]
+    return {i + 1: v for i, v in enumerate(vals)}
+
+
+def dev_width(n, st):
+    """Ширина аппаратной наклейки на n модулей: из таблицы, дальше — с её средним шагом."""
+    tbl = dev_widths_table(st)
+    if n in tbl:
+        return tbl[n]
+    lo, hi = min(tbl), max(tbl)
+    step = (tbl[hi] - tbl[lo]) / (hi - lo) if hi > lo else MODULE_MM
+    return tbl[hi] + (n - hi) * step
+
+
+def label_spec(lab, widths, font, st, kind):
     """
-    labels: список dict с ключами FIELDS.
+    Геометрия одной наклейки (мм) или None, если наклейка не нужна.
+    -> dict(w, h, header (None — без черты), pad, min, lines=[(текст, кегль, центр от верха)]), замечание
+    """
+    tag = str(lab.get("tag", "")).strip()
+    desc = [str(lab.get(k, "")).strip() for k in ("d1", "d2", "d3")]
+    mm, wkind, dev, n = widths.resolve_ex(lab.get("width", ""), st["default_width_mm"])
+    note = f"ширина «{lab.get('width')}» не найдена — взято {mm:g} мм" if wkind == "unknown" else None
+
+    if kind == "panel":
+        hh = st["header_height_mm"]
+        lines = [(tag, st["font_tag_mm"], hh / 2)]
+        lines += [(d, st["font_desc_mm"], hh + st["desc_first_mm"] + k * st["desc_pitch_mm"])
+                  for k, d in enumerate(desc)]
+        return dict(w=mm, h=st["label_height_mm"], header=hh, pad=st["text_pad_mm"],
+                    min=st["font_min_mm"], lines=lines), note
+
+    # --- на аппарат: высоты букв заданы по заглавной (как в AutoCAD) -> кегль = высота / доля заглавной
+    em = lambda cap: cap / font.cap
+    if dev == "none":
+        return None, None
+    if dev == "tag":
+        h = st["dev_tag_h_mm"]
+        return dict(w=st["dev_tag_w_mm"], h=h, header=None, pad=st["dev_pad_mm"],
+                    min=em(st["dev_min_cap_mm"]), lines=[(tag, em(st["dev_tag_cap_mm"]), h / 2)]), None
+    single = dev == "single" or st.get("dev_mode") == "одномодульные"
+    hh = st["dev_header_mm"]
+    lines = [(tag, em(st["dev_tag_cap_mm"]), hh / 2)]
+    lines += [(d, em(st["dev_desc_cap_mm"]), hh + st["dev_desc_first_mm"] + k * st["dev_desc_pitch_mm"])
+              for k, d in enumerate(desc)]
+    return dict(w=dev_width(1 if single else n, st), h=st["dev_height_mm"], header=hh,
+                pad=st["dev_pad_mm"], min=em(st["dev_min_cap_mm"]), lines=lines), note
+
+
+def layout(labels, widths, font, st, kind="panel"):
+    """
+    labels: список dict с ключами FIELDS; kind: panel — на панель, device — на аппараты.
     -> (pages, issues)
     pages: список страниц; страница — список наклеек
        {idx, x, y, w, h, line_y, texts:[(text, cx, baseline, size_mm, hscale)]}  (мм, ось Y вниз)
@@ -253,23 +365,21 @@ def layout(labels, widths, font, st):
     """
     pw, ph = page_size_mm(st)
     m = st["margin_mm"]
-    lh = st["label_height_mm"]
-    hh = st["header_height_mm"]
-    pad = st["text_pad_mm"]
     bottom_reserve = 6.0 if st.get("sheet_title") else 0.0
 
     pages, issues = [[]], {}
-    x, y = m, m
+    x, y, row_h = m, m, 0.0
 
     def new_row():
-        nonlocal x, y
+        nonlocal x, y, row_h
         x = m
-        y += lh + st["v_gap_mm"]
+        y += row_h + st["v_gap_mm"]
+        row_h = 0.0
 
     def new_page():
-        nonlocal x, y
+        nonlocal x, y, row_h
         pages.append([])
-        x, y = m, m
+        x, y, row_h = m, m, 0.0
 
     for idx, lab in enumerate(labels):
         tag = str(lab.get("tag", "")).strip()
@@ -282,9 +392,12 @@ def layout(labels, widths, font, st):
                 new_page()
             continue
 
-        w, kind = widths.resolve(lab.get("width", ""), st["default_width_mm"])
-        if kind == "unknown":
-            issues[idx] = f"ширина «{lab.get('width')}» не найдена — взято {w:g} мм"
+        spec, note = label_spec(lab, widths, font, st, kind)
+        if spec is None:
+            continue
+        if note:
+            issues[idx] = note
+        w, lh = spec["w"], spec["h"]
         if w > pw - 2 * m:
             issues[idx] = f"наклейка {w:g} мм шире страницы"
 
@@ -294,22 +407,20 @@ def layout(labels, widths, font, st):
             new_page()
 
         texts = []
-        avail = max(1.0, w - 2 * pad)
+        avail = max(1.0, w - 2 * spec["pad"])
         cx = x + w / 2
-        lines = [(tag, st["font_tag_mm"], y + hh / 2)]
-        for k, key in enumerate(("d1", "d2", "d3")):
-            cy = y + hh + st["desc_first_mm"] + k * st["desc_pitch_mm"]
-            lines.append((str(lab.get(key, "")).strip(), st["font_desc_mm"], cy))
-        for text, size, cy in lines:
+        for text, size, cy in spec["lines"]:
             if not text:
                 continue
-            size, hs, over = fit_text(font, text, size, avail, st)
+            size, hs, over = fit_text(font, text, size, avail, st, spec["min"])
             if over:
                 issues[idx] = f"«{text}» не влезает в {w:g} мм даже минимальным кеглем"
-            texts.append((text, cx, cy + size * font.cap / 2, size, hs))
+            texts.append((text, cx, y + cy + size * font.cap / 2, size, hs))
 
-        pages[-1].append(dict(idx=idx, x=x, y=y, w=w, h=lh, line_y=y + hh, texts=texts))
+        line_y = None if spec["header"] is None else y + spec["header"]
+        pages[-1].append(dict(idx=idx, x=x, y=y, w=w, h=lh, line_y=line_y, texts=texts))
         x += w + st["h_gap_mm"]
+        row_h = max(row_h, lh)
 
     if not pages[-1] and len(pages) > 1:
         pages.pop()
@@ -318,10 +429,10 @@ def layout(labels, widths, font, st):
 
 # ---------------------------------------------------------------- вывод
 
-def render_pdf(path, pages, font, st):
+def render_pdf(path, pages, font, st, title=None):
     pw, ph = page_size_mm(st)
     c = rl_canvas.Canvas(path, pagesize=(pw * MM_TO_PT, ph * MM_TO_PT))
-    c.setTitle(st.get("sheet_title") or "Наклейки")
+    c.setTitle(title or st.get("sheet_title") or "Наклейки")
     c.setAuthor("Label Maker")
     c.setCreator("Label Maker — github.com/allexx51-dev/label-maker")
     P = lambda v: v * MM_TO_PT          # мм -> pt
@@ -330,7 +441,8 @@ def render_pdf(path, pages, font, st):
         c.setLineWidth(P(st["line_width_mm"]))
         for it in page:
             c.rect(P(it["x"]), Y(it["y"] + it["h"]), P(it["w"]), P(it["h"]))
-            c.line(P(it["x"]), Y(it["line_y"]), P(it["x"] + it["w"]), Y(it["line_y"]))
+            if it["line_y"] is not None:
+                c.line(P(it["x"]), Y(it["line_y"]), P(it["x"] + it["w"]), Y(it["line_y"]))
             for text, cx, base, size, hs in it["texts"]:
                 t = c.beginText()
                 t.setFont(Font.NAME, P(size))
@@ -360,7 +472,8 @@ def render_page_image(page, page_no, font, st, ppm, mark=None):
         if mark is not None and it["idx"] == mark:
             d.rectangle([x0, y0, x1, y1], fill=(255, 245, 200))
         d.rectangle([x0, y0, x1, y1], outline="black", width=lw)
-        d.line([x0, it["line_y"] * ppm, x1, it["line_y"] * ppm], fill="black", width=lw)
+        if it["line_y"] is not None:
+            d.line([x0, it["line_y"] * ppm, x1, it["line_y"] * ppm], fill="black", width=lw)
         for text, cx, base, size, hs in it["texts"]:
             f = font.pil(size * ppm)
             if hs >= 0.999:
@@ -542,23 +655,41 @@ class MappingDialog(tk.Toplevel):
 
 
 SETTINGS_FORM = [
-    ("page_format", "Формат листа", ("A4", "A3")),
-    ("orientation", "Ориентация", ("альбомная", "книжная")),
-    ("margin_mm", "Поля листа, мм", None),
-    ("h_gap_mm", "Зазор между наклейками по горизонтали, мм", None),
-    ("v_gap_mm", "Зазор между рядами, мм", None),
-    ("label_height_mm", "Высота наклейки, мм", None),
-    ("header_height_mm", "Высота полосы тега (до черты), мм", None),
-    ("desc_first_mm", "Центр 1-й строки описания ниже черты, мм", None),
-    ("desc_pitch_mm", "Шаг строк описания, мм", None),
-    ("font_tag_mm", "Кегль тега, мм", None),
-    ("font_desc_mm", "Кегль описания, мм", None),
-    ("font_min_mm", "Минимальный кегль, мм", None),
-    ("fit_mode", "Если не влезает", ("уменьшить", "сжать")),
-    ("text_pad_mm", "Поле текста слева/справа, мм", None),
-    ("line_width_mm", "Толщина линий, мм", None),
-    ("default_width_mm", "Ширина по умолчанию, мм", None),
-    ("sheet_title", "Подпись листа (пусто — нет)", "str"),
+    ("Лист", [
+        ("page_format", "Формат листа", ("A4", "A3")),
+        ("orientation", "Ориентация", ("альбомная", "книжная")),
+        ("margin_mm", "Поля листа, мм", None),
+        ("h_gap_mm", "Зазор между наклейками по горизонтали, мм", None),
+        ("v_gap_mm", "Зазор между рядами, мм", None),
+        ("fit_mode", "Если не влезает", ("уменьшить", "сжать")),
+        ("line_width_mm", "Толщина линий, мм", None),
+        ("default_width_mm", "Ширина по умолчанию, мм", None),
+        ("sheet_title", "Подпись листа (пусто — нет)", "str"),
+    ]),
+    ("На панель", [
+        ("label_height_mm", "Высота наклейки, мм", None),
+        ("header_height_mm", "Высота полосы тега (до черты), мм", None),
+        ("desc_first_mm", "Центр 1-й строки описания ниже черты, мм", None),
+        ("desc_pitch_mm", "Шаг строк описания, мм", None),
+        ("font_tag_mm", "Кегль тега, мм", None),
+        ("font_desc_mm", "Кегль описания, мм", None),
+        ("font_min_mm", "Минимальный кегль, мм", None),
+        ("text_pad_mm", "Поле текста слева/справа, мм", None),
+    ]),
+    ("На аппарат", [
+        ("dev_mode", "Режим", ("многомодульные", "одномодульные")),
+        ("dev_widths", "Ширина на 1, 2, 3… модуля, мм", "str"),
+        ("dev_height_mm", "Высота наклейки, мм", None),
+        ("dev_header_mm", "Высота полосы тега (до черты), мм", None),
+        ("dev_tag_cap_mm", "Высота букв тега, мм (как в AutoCAD)", None),
+        ("dev_desc_cap_mm", "Высота букв описания, мм", None),
+        ("dev_desc_first_mm", "Центр 1-й строки описания ниже черты, мм", None),
+        ("dev_desc_pitch_mm", "Шаг строк описания, мм", None),
+        ("dev_min_cap_mm", "Минимальная высота букв, мм", None),
+        ("dev_pad_mm", "Поле текста слева/справа, мм", None),
+        ("dev_tag_w_mm", "«Только тег»: ширина, мм", None),
+        ("dev_tag_h_mm", "«Только тег»: высота, мм", None),
+    ]),
 ]
 
 
@@ -566,14 +697,16 @@ class LabelApp:
     def __init__(self, root):
         self.root = root
         root.title("Label Maker v2 — диспетчерские наклейки")
-        root.geometry("1100x620")
+        root.geometry("1100x640")
         self.st = load_settings()
         self.widths = WidthMap()
         self.font = Font(self.st.get("font_path", ""))
         self.labels = []
         self.issues = {}
+        self.dev_issues = {}
         self.edit_entry = None
         self.preview_win = None
+        self.preview_kind = "panel"
 
         self.build_ui()
         self.check_font()
@@ -581,31 +714,39 @@ class LabelApp:
 
     # ---------- интерфейс
     def build_ui(self):
-        bar = tk.Frame(self.root)
-        bar.pack(fill=tk.X, padx=4, pady=4)
-        groups = [
-            [("Открыть Excel/CSV", self.load_table), ("Сохранить Excel", self.save_table)],
-            [("Добавить", self.add_row), ("Удалить", self.delete_rows), ("▲", lambda: self.move(-1)),
-             ("▼", lambda: self.move(1)), ("Новый ряд", lambda: self.insert_marker(ROW_BREAK)),
-             ("Новая страница", lambda: self.insert_marker(PAGE_BREAK))],
-            [("Словарь ширин", self.edit_widths), ("Настройки", self.edit_settings), ("Шрифт…", self.choose_font)],
-            [("Предпросмотр", self.preview), ("Сохранить PDF", self.export_pdf)],
+        rows = [
+            [   # данные
+                [("Открыть Excel/CSV", self.load_table), ("Сохранить Excel", self.save_table)],
+                [("Добавить", self.add_row), ("Удалить", self.delete_rows), ("▲", lambda: self.move(-1)),
+                 ("▼", lambda: self.move(1)), ("Новый ряд", lambda: self.insert_marker(ROW_BREAK)),
+                 ("Новая страница", lambda: self.insert_marker(PAGE_BREAK))],
+            ],
+            [   # оформление и вывод
+                [("Словарь ширин", self.edit_widths), ("Настройки", self.edit_settings),
+                 ("Шрифт…", self.choose_font)],
+                [("Предпросмотр", self.preview), ("PDF на панель", lambda: self.export_pdf("panel")),
+                 ("PDF на аппараты", lambda: self.export_pdf("device"))],
+            ],
         ]
-        for g in groups:
-            fr = tk.Frame(bar)
-            fr.pack(side=tk.LEFT, padx=6)
-            for text, cmd in g:
-                tk.Button(fr, text=text, command=cmd).pack(side=tk.LEFT, padx=1)
+        for groups in rows:
+            bar = tk.Frame(self.root)
+            bar.pack(fill=tk.X, padx=4, pady=(4, 0))
+            for g in groups:
+                fr = tk.Frame(bar)
+                fr.pack(side=tk.LEFT, padx=6)
+                for text, cmd in g:
+                    tk.Button(fr, text=text, command=cmd).pack(side=tk.LEFT, padx=1)
 
         frame = tk.Frame(self.root)
         frame.pack(fill=tk.BOTH, expand=True, padx=4)
-        cols = ("n",) + FIELDS + ("mm",)
+        cols = ("n",) + FIELDS + ("mm", "dev")
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", selectmode="extended")
-        heads = ("№",) + FIELD_TITLES + ("мм",)
-        widths = (40, 110, 200, 200, 200, 230, 60)
+        heads = ("№",) + FIELD_TITLES + ("панель, мм", "аппарат, мм")
+        widths = (40, 100, 180, 180, 170, 200, 85, 95)
+        narrow = ("n", "mm", "dev")
         for c, h, w in zip(cols, heads, widths):
             self.tree.heading(c, text=h)
-            self.tree.column(c, width=w, anchor="center" if c in ("n", "mm") else "w", stretch=c not in ("n", "mm"))
+            self.tree.column(c, width=w, anchor="center" if c in narrow else "w", stretch=c not in narrow)
         vs = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vs.set)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -636,26 +777,38 @@ class LabelApp:
                                             "русские надписи не напечатаются. Выберите другой шрифт.")
 
     # ---------- таблица
-    def relayout(self):
+    def relayout(self, kind="panel"):
         if not self.font.path:
             return [], {}
+        if kind == "device":
+            pages, self.dev_issues = layout(self.labels, self.widths, self.font, self.st, "device")
+            return pages, self.dev_issues
         pages, self.issues = layout(self.labels, self.widths, self.font, self.st)
         return pages, self.issues
 
+    def device_cell(self, lab):
+        """Текст колонки «аппарат, мм»: ширина, «тег» или «—»."""
+        spec, _ = label_spec(lab, self.widths, self.font, self.st, "device")
+        if spec is None:
+            return "—"
+        return "тег" if spec["header"] is None else f"{spec['w']:g}"
+
     def refresh(self, keep_sel=None):
+        self.relayout("device")
         pages, issues = self.relayout()
         self.tree.delete(*self.tree.get_children())
         for i, lab in enumerate(self.labels):
             tag_txt = str(lab["tag"]).strip()
             if tag_txt in (ROW_BREAK, PAGE_BREAK):
-                tag, mm = "marker", ""
+                tag, mm, dmm = "marker", "", ""
             else:
                 w, kind = self.widths.resolve(lab["width"], self.st["default_width_mm"])
                 tag, mm = kind, f"{w:g}"
-                if i in issues:
+                dmm = self.device_cell(lab)
+                if i in issues or i in self.dev_issues:
                     tag = "issue" if kind != "unknown" else "unknown"
-            self.tree.insert("", tk.END, iid=str(i), values=(i + 1,) + tuple(lab[f] for f in FIELDS) + (mm,),
-                             tags=(tag,))
+            self.tree.insert("", tk.END, iid=str(i),
+                             values=(i + 1,) + tuple(lab[f] for f in FIELDS) + (mm, dmm), tags=(tag,))
         if keep_sel:
             sel = [str(i) for i in keep_sel if 0 <= i < len(self.labels)]
             self.tree.selection_set(sel)
@@ -663,13 +816,15 @@ class LabelApp:
                 self.tree.see(sel[0])
         n = sum(len(p) for p in pages)
         self.status.config(text=f"Строк: {len(self.labels)}   наклеек: {n}   листов: {len(pages) if n else 0}   "
-                                f"замечаний: {len(issues)}   шрифт: {os.path.basename(self.font.path or '—')}")
+                                f"замечаний: панель {len(issues)}, аппараты {len(self.dev_issues)}   "
+                                f"шрифт: {os.path.basename(self.font.path or '—')}")
         self.update_preview()
 
     def show_issue(self):
         sel = self.selected()
-        if sel and sel[0] in self.issues:
-            self.status.config(text=f"Строка {sel[0] + 1}: {self.issues[sel[0]]}")
+        if sel and (sel[0] in self.issues or sel[0] in self.dev_issues):
+            txt = self.issues.get(sel[0]) or "на аппарат: " + self.dev_issues[sel[0]]
+            self.status.config(text=f"Строка {sel[0] + 1}: {txt}")
         self.update_preview()
 
     def selected(self):
@@ -801,8 +956,9 @@ class LabelApp:
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось сохранить:\n{e}")
 
-    def export_pdf(self):
-        pages, issues = self.relayout()
+    def export_pdf(self, kind="panel"):
+        pages, issues = self.relayout(kind)
+        what = "на аппараты" if kind == "device" else "на панель"
         if not any(pages):
             messagebox.showinfo("PDF", "Нет наклеек.")
             return
@@ -810,18 +966,19 @@ class LabelApp:
                 "Замечания", f"Есть замечания ({len(issues)}), например:\n"
                              f"строка {min(issues) + 1}: {issues[min(issues)]}\n\nВсё равно сохранить?"):
             return
-        path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF", "*.pdf")])
+        path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
+                                            title=f"PDF {what}")
         if not path:
             return
         try:
-            render_pdf(path, pages, self.font, self.st)
+            render_pdf(path, pages, self.font, self.st, f"Наклейки {what}")
         except PermissionError:
             messagebox.showerror("Ошибка", "Файл занят — закройте его в просмотрщике PDF.")
             return
         except Exception as e:
             messagebox.showerror("Ошибка", f"PDF не сохранён:\n{e}")
             return
-        messagebox.showinfo("Готово", f"PDF сохранён: {path}\nЛистов: {len(pages)}. Печать — масштаб 100%.")
+        messagebox.showinfo("Готово", f"PDF {what} сохранён: {path}\nЛистов: {len(pages)}. Печать — масштаб 100%.")
 
     def choose_font(self):
         path = filedialog.askopenfilename(filetypes=[("TrueType", "*.ttf *.otf")])
@@ -841,50 +998,100 @@ class LabelApp:
     def edit_widths(self):
         top = tk.Toplevel(self.root)
         top.title("Словарь ширин")
-        top.geometry("520x460")
-        tv = ttk.Treeview(top, columns=("k", "v"), show="headings")
-        tv.heading("k", text="Ключ (число модулей или имя блока)")
+        top.geometry("620x480")
+        tv = ttk.Treeview(top, columns=("k", "v", "d"), show="headings")
+        tv.heading("k", text="Ключ (число модулей или тип аппарата)")
         tv.heading("v", text="Ширина, мм")
+        tv.heading("d", text="На аппарат")
         tv.column("v", width=90, anchor="center", stretch=False)
+        tv.column("d", width=100, anchor="center", stretch=False)
         tv.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         def fill():
             tv.delete(*tv.get_children())
             for k, v in sorted(self.widths.numbers.items()):
-                tv.insert("", tk.END, iid=f"n:{k}", values=(k, f"{v:g}"))
+                tv.insert("", tk.END, iid=f"n:{k}", values=(k, f"{v:g}", DEV_KINDS["auto"]))
             for k, v in sorted(self.widths.names.items()):
-                tv.insert("", tk.END, iid=f"s:{k}", values=(k, f"{v:g}"))
+                tv.insert("", tk.END, iid=f"s:{k}",
+                          values=(k, f"{v:g}", DEV_KINDS[self.widths.dev.get(k, "auto")]))
 
         def commit():
             self.widths.save()
             fill()
             self.refresh(keep_sel=self.selected())
 
-        def add():
-            key = simpledialog.askstring("Новая запись", "Число модулей или имя блока:", parent=top)
-            if not key or not key.strip():
-                return
-            val = simpledialog.askfloat("Новая запись", f"Ширина для «{key.strip()}», мм:", parent=top, minvalue=1)
-            if val is None:
-                return
-            key = key.strip()
+        def entry_dialog(title, key="", mm="", dev="auto", key_locked=False):
+            """-> (ключ, мм, тип) или None"""
+            d = tk.Toplevel(top)
+            d.title(title)
+            d.transient(top)
+            d.grab_set()
+            res = {}
+            kv, mv, dv = tk.StringVar(value=key), tk.StringVar(value=mm), tk.StringVar(value=DEV_KINDS[dev])
+            tk.Label(d, text="Число модулей или тип аппарата:").grid(row=0, column=0, sticky="w", padx=8, pady=3)
+            ke = tk.Entry(d, textvariable=kv, width=32, state="readonly" if key_locked else "normal")
+            ke.grid(row=0, column=1, padx=8, pady=3)
+            tk.Label(d, text="Ширина на панели, мм:").grid(row=1, column=0, sticky="w", padx=8, pady=3)
+            me = tk.Entry(d, textvariable=mv, width=12)
+            me.grid(row=1, column=1, sticky="w", padx=8, pady=3)
+            tk.Label(d, text="Наклейка на аппарат:").grid(row=2, column=0, sticky="w", padx=8, pady=3)
+            dc = ttk.Combobox(d, textvariable=dv, values=list(DEV_KINDS.values()), state="readonly", width=14)
+            dc.grid(row=2, column=1, sticky="w", padx=8, pady=3)
+            tk.Label(d, text="авто — по режиму в настройках; 1 модуль — всегда на один полюс;\n"
+                             "только тег — маленькая, для цокольных реле; нет — места на аппарате нет.\n"
+                             "Для чисел модулей тип всегда «авто».",
+                     fg="gray", justify="left").grid(row=3, column=0, columnspan=2, sticky="w", padx=8)
+
+            def ok():
+                k = kv.get().strip()
+                try:
+                    v = float(mv.get().replace(",", "."))
+                except ValueError:
+                    messagebox.showerror("Ошибка", "Ширина — число", parent=d)
+                    return
+                if not k or v <= 0:
+                    messagebox.showerror("Ошибка", "Нужны ключ и ширина больше нуля", parent=d)
+                    return
+                res["r"] = (k, v, DEV_KINDS_BACK[dv.get()])
+                d.destroy()
+
+            bf2 = tk.Frame(d)
+            bf2.grid(row=4, column=0, columnspan=2, pady=6)
+            tk.Button(bf2, text="OK", width=10, command=ok).pack(side=tk.LEFT, padx=4)
+            tk.Button(bf2, text="Отмена", width=10, command=d.destroy).pack(side=tk.LEFT, padx=4)
+            (me if key_locked else ke).focus_set()
+            d.bind("<Return>", lambda e: ok())
+            d.wait_window()
+            return res.get("r")
+
+        def store(key, mm, dev):
             if key.isdigit():
-                self.widths.numbers[int(key)] = val
+                self.widths.numbers[int(key)] = mm
             else:
-                self.widths.names[key] = val
-            commit()
+                self.widths.names[key] = mm
+                if dev == "auto":
+                    self.widths.dev.pop(key, None)
+                else:
+                    self.widths.dev[key] = dev
+
+        def add():
+            r = entry_dialog("Новая запись")
+            if r:
+                store(*r)
+                commit()
 
         def edit(_=None):
             sel = tv.selection()
             if not sel:
                 return
             kind, key = sel[0].split(":", 1)
-            d = self.widths.numbers if kind == "n" else self.widths.names
-            k = int(key) if kind == "n" else key
-            val = simpledialog.askfloat("Изменить", f"Ширина для «{key}», мм:", initialvalue=d[k],
-                                        parent=top, minvalue=1)
-            if val is not None:
-                d[k] = val
+            if kind == "n":
+                r = entry_dialog("Изменить", key, f"{self.widths.numbers[int(key)]:g}", key_locked=True)
+            else:
+                r = entry_dialog("Изменить", key, f"{self.widths.names[key]:g}",
+                                 self.widths.dev.get(key, "auto"), key_locked=True)
+            if r:
+                store(*r)
                 commit()
 
         def delete():
@@ -897,13 +1104,14 @@ class LabelApp:
                     self.widths.numbers.pop(int(key), None)
                 else:
                     self.widths.names.pop(key, None)
+                    self.widths.dev.pop(key, None)
             commit()
 
         tv.bind("<Double-1>", edit)
         bf = tk.Frame(top)
         bf.pack(fill=tk.X, pady=4)
-        for t, c in (("Добавить", add), ("Изменить", edit), ("Удалить", delete)):
-            tk.Button(bf, text=t, command=c, width=12).pack(side=tk.LEFT, padx=4)
+        for t_, c in (("Добавить", add), ("Изменить", edit), ("Удалить", delete)):
+            tk.Button(bf, text=t_, command=c, width=12).pack(side=tk.LEFT, padx=4)
         tk.Label(bf, text=os.path.basename(WIDTHS_FILE), fg="gray").pack(side=tk.RIGHT, padx=4)
         fill()
 
@@ -912,16 +1120,21 @@ class LabelApp:
         top = tk.Toplevel(self.root)
         top.title("Настройки")
         top.transient(self.root)
+        nb = ttk.Notebook(top)
+        nb.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
         vars_ = {}
-        for r, (key, title, kind) in enumerate(SETTINGS_FORM):
-            tk.Label(top, text=title + ":").grid(row=r, column=0, sticky="w", padx=8, pady=2)
-            v = tk.StringVar(value=str(self.st[key]))
-            if isinstance(kind, tuple):
-                w = ttk.Combobox(top, textvariable=v, values=kind, state="readonly", width=14)
-            else:
-                w = tk.Entry(top, textvariable=v, width=16 if kind is None else 30)
-            w.grid(row=r, column=1, sticky="w", padx=8, pady=2)
-            vars_[key] = (v, kind)
+        for tab_title, items in SETTINGS_FORM:
+            tab = tk.Frame(nb)
+            nb.add(tab, text=tab_title)
+            for r, (key, title, kind) in enumerate(items):
+                tk.Label(tab, text=title + ":").grid(row=r, column=0, sticky="w", padx=8, pady=2)
+                v = tk.StringVar(value=str(self.st[key]))
+                if isinstance(kind, tuple):
+                    w = ttk.Combobox(tab, textvariable=v, values=kind, state="readonly", width=16)
+                else:
+                    w = tk.Entry(tab, textvariable=v, width=16 if kind is None else 30)
+                w.grid(row=r, column=1, sticky="w", padx=8, pady=2)
+                vars_[key] = (v, kind)
 
         def apply(close):
             new = dict(self.st)
@@ -934,8 +1147,12 @@ class LabelApp:
                         return
                 else:
                     new[key] = v.get()
-            if new["header_height_mm"] >= new["label_height_mm"]:
+            if new["header_height_mm"] >= new["label_height_mm"] or new["dev_header_mm"] >= new["dev_height_mm"]:
                 messagebox.showerror("Ошибка", "Полоса тега выше самой наклейки.", parent=top)
+                return
+            if parse_dev_widths(new["dev_widths"]) is None:
+                messagebox.showerror("Ошибка", "Ширины на аппарат: числа через «;», например 13.7; 31.7",
+                                     parent=top)
                 return
             self.st = new
             save_settings(self.st)
@@ -948,7 +1165,7 @@ class LabelApp:
                 v.set(str(DEFAULT_SETTINGS[key]))
 
         bf = tk.Frame(top)
-        bf.grid(row=len(SETTINGS_FORM), column=0, columnspan=2, pady=8)
+        bf.pack(pady=8)
         tk.Button(bf, text="Применить", command=lambda: apply(False), width=11).pack(side=tk.LEFT, padx=3)
         tk.Button(bf, text="OK", command=lambda: apply(True), width=11).pack(side=tk.LEFT, padx=3)
         tk.Button(bf, text="По умолчанию", command=reset, width=11).pack(side=tk.LEFT, padx=3)
@@ -974,6 +1191,15 @@ class LabelApp:
         self.zoom_label = tk.Label(bar)
         self.zoom_label.pack(side=tk.LEFT, padx=6)
         tk.Label(bar, text="выделенная строка подсвечена", fg="gray").pack(side=tk.RIGHT, padx=6)
+        kind_var = tk.StringVar(value="на панель" if self.preview_kind == "panel" else "на аппараты")
+        cb = ttk.Combobox(bar, textvariable=kind_var, values=("на панель", "на аппараты"),
+                          state="readonly", width=12)
+        cb.pack(side=tk.LEFT, padx=8)
+
+        def set_kind(_=None):
+            self.preview_kind = "device" if kind_var.get() == "на аппараты" else "panel"
+            self.update_preview()
+        cb.bind("<<ComboboxSelected>>", set_kind)
 
         fr = tk.Frame(top)
         fr.pack(fill=tk.BOTH, expand=True)
@@ -996,7 +1222,7 @@ class LabelApp:
         cv = self.preview_canvas
         ppm = self.st["preview_px_per_mm"]
         self.zoom_label.config(text=f"{ppm * 25.4 / 96 * 100:.0f}% (при 96 dpi)")
-        pages, _ = layout(self.labels, self.widths, self.font, self.st)
+        pages, _ = layout(self.labels, self.widths, self.font, self.st, self.preview_kind)
         sel = self.selected()
         mark = sel[0] if sel else None
         cv.delete("all")

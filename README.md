@@ -1,4 +1,4 @@
-# Label Maker — наклейки для электрощита
+# Label Maker 3 — наклейки для электрощита
 
 Сайт автора: [alexkaminsky.me](https://alexkaminsky.me)
 

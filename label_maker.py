@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Label Maker v2 — диспетчерские наклейки на панель щита и на сами аппараты.
+Label Maker 3 — диспетчерские наклейки на панель щита и на сами аппараты.
 
 Данные: TAG1 (строка 1) + DESC1..DESC3 (строки 2–4) + ширина.
 Ширина: число модулей (ключ словаря), имя блока ACADE (ключ словаря) или миллиметры.
@@ -35,6 +35,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as rl_canvas
 
+VERSION = "3.0"
 MM_TO_PT = 72 / 25.4
 FIELDS = ("tag", "d1", "d2", "d3", "width")
 FIELD_TITLES = ("TAG1 (стр. 1)", "DESC1 (стр. 2)", "DESC2 (стр. 3)", "DESC3 (стр. 4)", "Ширина")
@@ -434,7 +435,7 @@ def render_pdf(path, pages, font, st, title=None):
     c = rl_canvas.Canvas(path, pagesize=(pw * MM_TO_PT, ph * MM_TO_PT))
     c.setTitle(title or st.get("sheet_title") or "Наклейки")
     c.setAuthor("Label Maker")
-    c.setCreator("Label Maker — github.com/allexx51-dev/label-maker")
+    c.setCreator(f"Label Maker {VERSION} — github.com/allexx51-dev/label-maker")
     P = lambda v: v * MM_TO_PT          # мм -> pt
     Y = lambda v: (ph - v) * MM_TO_PT   # мм от верха -> pt от низа
     for n, page in enumerate(pages, 1):
@@ -696,7 +697,7 @@ SETTINGS_FORM = [
 class LabelApp:
     def __init__(self, root):
         self.root = root
-        root.title("Label Maker v2 — диспетчерские наклейки")
+        root.title(f"Label Maker {VERSION} — диспетчерские наклейки")
         root.geometry("1100x640")
         self.st = load_settings()
         self.widths = WidthMap()
@@ -942,7 +943,7 @@ class LabelApp:
             self.labels.extend(dlg.result)
         else:
             self.labels = dlg.result
-        self.root.title(f"Label Maker v2 — {os.path.basename(path)}")
+        self.root.title(f"Label Maker {VERSION} — {os.path.basename(path)}")
         self.refresh()
 
     def save_table(self):

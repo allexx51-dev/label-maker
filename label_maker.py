@@ -571,6 +571,14 @@ HEADER_GUESS = {
 }
 
 
+# Заголовки, которые сравниваются только целиком: короткие слова, которые иначе
+# совпали бы с частью соседних (ОПИС ⊂ ОПИС2). ИМЯ ПО / ОПИС — русская ACADE.
+HEADER_EXACT = {
+    "tag": ["ИМЯПО", "ИМЯ"],
+    "d1": ["ОПИС", "ОПИСАНИЕ", "DESC", "DESCRIPTION"],
+}
+
+
 def norm_header(s):
     return "".join(ch for ch in str(s).upper() if ch.isalnum())
 
@@ -615,7 +623,8 @@ def read_table(path):
 def guess_header_row(df):
     for r in range(min(15, len(df))):
         cells = [norm_header(v) for v in df.iloc[r]]
-        hits = sum(1 for c in cells for keys in HEADER_GUESS.values() if any(k in c for k in keys) and c)
+        hits = sum(1 for c in cells if c and (any(k in c for keys in HEADER_GUESS.values() for k in keys)
+                                              or any(c in keys for keys in HEADER_EXACT.values())))
         if hits >= 2:
             return r
     return None
@@ -624,7 +633,14 @@ def guess_header_row(df):
 def guess_mapping(headers):
     mp = {}
     normed = [norm_header(h) for h in headers]
+    for field, keys in HEADER_EXACT.items():
+        for i, h in enumerate(normed):
+            if h in keys and i not in mp.values():
+                mp[field] = i
+                break
     for field in ("dwidth",) + tuple(f for f in FIELDS if f != "dwidth"):
+        if field in mp:
+            continue
         for key in HEADER_GUESS[field]:
             for i, h in enumerate(normed):
                 if h and key in h and i not in mp.values():
